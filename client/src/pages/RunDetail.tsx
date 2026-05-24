@@ -25,14 +25,9 @@ const DEFAULT_REFINE: MineRefineForm = { outputMaterial: '', refineryName: '', r
 function MiningPanel({ runId, currency }: { runId: number; currency: string }) {
   const qc = useQueryClient();
   const { data } = useQuery({ queryKey: ['mining', runId], queryFn: () => miningApi.getPipeline(runId) });
-  const { entries = [], bags = [], refiningJobs = [], sales = [] } = (data as any) || {};
+  const { entries = [], bags = [] } = (data as any) || {};
 
   const inv = () => qc.invalidateQueries({ queryKey: ['mining', runId] });
-  const invAll = () => {
-    qc.invalidateQueries({ queryKey: ['mining', runId] });
-    qc.invalidateQueries({ queryKey: ['run', runId] });
-    qc.invalidateQueries({ queryKey: ['inventory'] });
-  };
 
   const addBag = useMutation({ mutationFn: (d: unknown) => miningApi.addBag(d), onSuccess: inv });
   const commitBag = useMutation({
@@ -56,37 +51,17 @@ function MiningPanel({ runId, currency }: { runId: number; currency: string }) {
     onSuccess: inv,
   });
   const removeOreLine = useMutation({ mutationFn: (id: number) => miningApi.removeOreLine(id), onSuccess: inv });
-  const addRefining = useMutation({ mutationFn: (d: unknown) => miningApi.addRefining(d), onSuccess: inv });
-  const removeRefining = useMutation({ mutationFn: (id: number) => miningApi.removeRefining(id), onSuccess: inv });
-  const finishRefining = useMutation({
-    mutationFn: ({ id, qty, eff }: { id: number; qty: number; eff: number }) =>
-      miningApi.updateRefining(id, { outputQuantity: qty, efficiency: eff, status: 'done', completedAt: new Date().toISOString() }),
-    onSuccess: () => { inv(); qc.invalidateQueries({ queryKey: ['inventory'] }); },
-  });
-  const addSale = useMutation({ mutationFn: (d: unknown) => salesApi.create(d), onSuccess: invAll });
-  const removeSale = useMutation({ mutationFn: (id: number) => salesApi.remove(id), onSuccess: invAll });
   // Legacy entries
   const addEntry = useMutation({ mutationFn: (d: unknown) => miningApi.addEntry(d), onSuccess: inv });
   const removeEntry = useMutation({ mutationFn: (id: number) => miningApi.removeEntry(id), onSuccess: inv });
 
   const [newBag, setNewBag] = useState({ label: '', capacity: '' });
   const [lineForm, setLineForm] = useState<Record<number, MineLineForm>>({});
-  const [refineOpen, setRefineOpen] = useState<Record<number, boolean>>({});
-  const [refineForm, setRefineForm] = useState<Record<number, MineRefineForm>>({});
-  const [finishForm, setFinishForm] = useState<Record<number, { qty: string; eff: string }>>({});
-  const [saleForm, setSaleForm] = useState({ refiningJobId: '', commodity: '', quantitySold: '', pricePerUnit: '', location: '' });
   const [showLegacy, setShowLegacy] = useState(false);
   const [entryForm, setEntryForm] = useState({ rawMaterial: '', quantityRaw: '', location: '' });
   const [duplicating, setDuplicating] = useState<number | null>(null);
   const [collapsedBags, setCollapsedBags] = useState<Record<number, boolean>>({});
   const [commitLoc, setCommitLoc] = useState<Record<number, string>>({});
-  type QuickSaleForm = { commodity: string; qty: string; price: string; location: string };
-  const [quickSale, setQuickSale] = useState<Record<number, QuickSaleForm | null>>({});
-  const openQuickSale = (rj: any) =>
-    setQuickSale(f => ({
-      ...f,
-      [rj.id]: { commodity: rj.output_material || '', qty: String(rj.output_quantity ?? ''), price: '', location: '' },
-    }));
   const [editingBag, setEditingBag] = useState<Record<number, { label: string; capacity: string }>>({});
   const [selectedBags, setSelectedBags] = useState<Record<number, boolean>>({});
   const [batchLoc, setBatchLoc] = useState('');
@@ -126,13 +101,10 @@ function MiningPanel({ runId, currency }: { runId: number; currency: string }) {
     return 'text-slate-400';
   };
 
-  // Use f[id] (latest state) inside updaters — avoids stale closure on lineForm/refineForm
+  // Use f[id] (latest state) inside updaters — avoids stale closure on lineForm
   const getLF = (id: number): MineLineForm => lineForm[id] ?? DEFAULT_LINE;
   const setLF = (id: number, patch: Partial<MineLineForm>) =>
     setLineForm(f => ({ ...f, [id]: { ...(f[id] ?? DEFAULT_LINE), ...patch } }));
-  const getRF = (id: number): MineRefineForm => refineForm[id] ?? DEFAULT_REFINE;
-  const setRF = (id: number, patch: Partial<MineRefineForm>) =>
-    setRefineForm(f => ({ ...f, [id]: { ...(f[id] ?? DEFAULT_REFINE), ...patch } }));
 
   const handleDuplicateBag = async (bag: any) => {
     setDuplicating(bag.id);
@@ -252,8 +224,6 @@ function MiningPanel({ runId, currency }: { runId: number; currency: string }) {
         const nonInertScu = lines.filter((l: any) => !l.is_inert).reduce((s: number, l: any) => s + (Number(l.scu) || 0), 0);
         const fillPct = bag.capacity_scu ? Math.min((usedScu / bag.capacity_scu) * 100, 100) : 0;
         const lf = getLF(bag.id);
-        const rf = getRF(bag.id);
-        const isRO = refineOpen[bag.id] ?? false;
         const isCollapsed = collapsedBags[bag.id] ?? false;
 
         return (
@@ -444,77 +414,18 @@ function MiningPanel({ runId, currency }: { runId: number; currency: string }) {
                 {/* ── Check-in / Refinery gate ── */}
                 <div className="mt-3 pt-3 border-t border-slate-700/40">
                   {bag.committed ? (
-                    /* Committed — show location + Send to Refinery */
-                    <div className="space-y-3">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-xs text-emerald-400 font-medium">
-                          ✓ Checked in at <span className="font-semibold">{bag.committed_location || 'station'}</span>
-                        </span>
-                        <button
-                          onClick={() => uncommitBag.mutate(bag.id)}
-                          className="text-xs text-slate-500 hover:text-slate-300 transition-colors underline-offset-2 hover:underline"
-                        >
-                          move / undo
-                        </button>
-                      </div>
-                      {/* Send to Refinery — only available once committed */}
-                      <div>
-                        <button
-                          onClick={() => setRefineOpen(f => ({ ...f, [bag.id]: !isRO }))}
-                          className="flex items-center gap-1 text-xs text-slate-500 hover:text-slate-300 transition-colors"
-                        >
-                          <ChevronRight size={11} className={`transition-transform duration-150 ${isRO ? 'rotate-90' : ''}`} />
-                          Send to Refinery
-                        </button>
-                        {isRO && (
-                          <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-3">
-                            <input
-                              placeholder="Output material"
-                              value={rf.outputMaterial}
-                              onChange={e => setRF(bag.id, { outputMaterial: e.target.value })}
-                            />
-                            <input
-                              placeholder={bag.committed_location || 'Refinery name'}
-                              value={rf.refineryName}
-                              onChange={e => setRF(bag.id, { refineryName: e.target.value })}
-                            />
-                            <input
-                              placeholder="Method (e.g. Dinyx)"
-                              value={rf.refineryMethod}
-                              onChange={e => setRF(bag.id, { refineryMethod: e.target.value })}
-                            />
-                            <MathInput
-                              placeholder={nonInertScu > 0 ? `Input SCU (${nonInertScu.toFixed(2)})` : 'Input SCU'}
-                              value={rf.inputQuantity}
-                              onChange={e => setRF(bag.id, { inputQuantity: e.target.value })}
-                            />
-                            <MathInput
-                              placeholder="Refining cost"
-                              value={rf.costToRefine}
-                              onChange={e => setRF(bag.id, { costToRefine: e.target.value })}
-                            />
-                            <Button
-                              size="sm"
-                              onClick={() => {
-                                const inputQty = rf.inputQuantity ? Number(rf.inputQuantity) : nonInertScu;
-                                if (!rf.outputMaterial || !inputQty) return;
-                                addRefining.mutate({
-                                  bagId: bag.id,
-                                  inputQuantity: inputQty,
-                                  outputMaterial: rf.outputMaterial,
-                                  refineryName: rf.refineryName || bag.committed_location || undefined,
-                                  refineryMethod: rf.refineryMethod || undefined,
-                                  costToRefine: Number(rf.costToRefine) || 0,
-                                });
-                                setRefineOpen(f => ({ ...f, [bag.id]: false }));
-                                setRF(bag.id, DEFAULT_REFINE);
-                              }}
-                            >
-                              <Plus size={13} /> Queue
-                            </Button>
-                          </div>
-                        )}
-                      </div>
+                    /* Committed — show location badge + pointer to Refining tab */
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs text-emerald-400 font-medium">
+                        ✓ Checked in at <span className="font-semibold">{bag.committed_location || 'station'}</span>
+                      </span>
+                      <button
+                        onClick={() => uncommitBag.mutate(bag.id)}
+                        className="text-xs text-slate-500 hover:text-slate-300 transition-colors underline-offset-2 hover:underline"
+                      >
+                        move / undo
+                      </button>
+                      <span className="text-xs text-slate-600">→ use the Refining tab to queue a job</span>
                     </div>
                   ) : (
                     /* Not committed — show check-in form */
@@ -554,154 +465,6 @@ function MiningPanel({ runId, currency }: { runId: number; currency: string }) {
           </Card>
         );
       })}
-
-      {/* ── Refining jobs ── */}
-      {(refiningJobs as any[]).length > 0 && (
-        <Card>
-          <CardHeader><CardTitle>Refining Jobs</CardTitle></CardHeader>
-          <div className="space-y-0">
-            {(refiningJobs as any[]).map((rj: any) => {
-              const isSold = (rj.sale_revenue ?? 0) > 0;
-              const needsSale = rj.status === 'done' && !isSold;
-              const qs = quickSale[rj.id];
-              return (
-                <div key={rj.id} className={`border-b border-slate-700/40 last:border-0 ${needsSale ? 'bg-amber-500/5' : ''}`}>
-                  {/* Main row */}
-                  <div className="grid grid-cols-[1fr_auto] gap-2 px-3 py-2.5 items-start">
-                    {/* Left: job info */}
-                    <div className="min-w-0 space-y-0.5">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-medium text-slate-200 text-sm">{rj.output_material}</span>
-                        <Badge label={rj.status} />
-                        {rj.refinery_name && <span className="text-xs text-slate-500">{rj.refinery_name}{rj.refinery_method ? ` · ${rj.refinery_method}` : ''}</span>}
-                      </div>
-                      <div className="flex items-center gap-3 text-xs text-slate-500 flex-wrap">
-                        <span>Source: {rj.source_label || '—'}</span>
-                        <span>In: {rj.input_quantity} SCU</span>
-                        {rj.output_quantity != null && <span>Out: {rj.output_quantity} SCU</span>}
-                        {rj.efficiency != null && <span>Yield: {rj.efficiency}%</span>}
-                        <span className="text-red-400">Cost: {fmtCurrency(rj.cost_to_refine, currency)}</span>
-                        {isSold && (
-                          <span className="text-emerald-400 font-medium">
-                            Sold: {fmtCurrency(rj.sale_revenue, currency)}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    {/* Right: actions */}
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      {rj.status !== 'done' ? (
-                        /* Complete refining */
-                        <div className="flex gap-1">
-                          <MathInput
-                            placeholder="Out qty"
-                            className="w-20"
-                            value={finishForm[rj.id]?.qty || ''}
-                            onChange={e => setFinishForm(f => ({ ...f, [rj.id]: { ...f[rj.id], qty: e.target.value } }))}
-                          />
-                          <MathInput
-                            placeholder="%"
-                            className="w-14"
-                            value={finishForm[rj.id]?.eff || ''}
-                            onChange={e => setFinishForm(f => ({ ...f, [rj.id]: { ...f[rj.id], eff: e.target.value } }))}
-                          />
-                          <Button size="sm" variant="secondary" onClick={() => {
-                            const f = finishForm[rj.id];
-                            if (!f?.qty) return;
-                            finishRefining.mutate({ id: rj.id, qty: Number(f.qty), eff: Number(f.eff) || 0 });
-                          }}><CheckCircle size={12} /></Button>
-                        </div>
-                      ) : needsSale ? (
-                        /* Done but no sale recorded yet */
-                        <Button size="sm" variant="secondary" onClick={() => openQuickSale(rj)}>
-                          <DollarSign size={12} /> Record Sale
-                        </Button>
-                      ) : null}
-                      <Button variant="danger" size="sm" onClick={() => removeRefining.mutate(rj.id)}>
-                        <Trash2 size={12} />
-                      </Button>
-                    </div>
-                  </div>
-
-                  {/* Inline quick-sale form */}
-                  {qs && (
-                    <div className="px-3 pb-3 pt-1 bg-slate-800/40 border-t border-slate-700/40">
-                      <p className="text-xs text-slate-400 mb-2">
-                        Record the sale — this will count toward this run's revenue.
-                      </p>
-                      <div className="flex gap-2 flex-wrap items-end">
-                        <div className="flex-1 min-w-[130px]">
-                          <p className="text-xs text-slate-500 mb-1">Commodity</p>
-                          <input
-                            value={qs.commodity}
-                            onChange={e => setQuickSale(f => ({ ...f, [rj.id]: { ...f[rj.id]!, commodity: e.target.value } }))}
-                            placeholder="e.g. Quantanium"
-                          />
-                        </div>
-                        <div className="w-24">
-                          <p className="text-xs text-slate-500 mb-1">Qty sold</p>
-                          <MathInput
-                            value={qs.qty}
-                            onChange={e => setQuickSale(f => ({ ...f, [rj.id]: { ...f[rj.id]!, qty: e.target.value } }))}
-                            placeholder="SCU"
-                          />
-                        </div>
-                        <div className="w-32">
-                          <p className="text-xs text-slate-500 mb-1">Price / unit</p>
-                          <MathInput
-                            value={qs.price}
-                            onChange={e => setQuickSale(f => ({ ...f, [rj.id]: { ...f[rj.id]!, price: e.target.value } }))}
-                            placeholder={currency}
-                          />
-                        </div>
-                        <div className="w-36">
-                          <p className="text-xs text-slate-500 mb-1">Location</p>
-                          <input
-                            value={qs.location}
-                            onChange={e => setQuickSale(f => ({ ...f, [rj.id]: { ...f[rj.id]!, location: e.target.value } }))}
-                            placeholder="Optional"
-                          />
-                        </div>
-                        {qs.qty && qs.price && (
-                          <div className="text-sm text-emerald-400 font-semibold pb-0.5">
-                            = {fmtCurrency(Number(qs.qty) * Number(qs.price), currency)}
-                          </div>
-                        )}
-                        <div className="flex gap-1.5 pb-0.5">
-                          <Button
-                            size="sm"
-                            onClick={() => {
-                              if (!qs.commodity || !qs.qty || !qs.price) return;
-                              addSale.mutate({
-                                runId,
-                                refiningJobId: rj.id,
-                                commodity: qs.commodity,
-                                quantitySold: Number(qs.qty),
-                                pricePerUnit: Number(qs.price),
-                                location: qs.location || undefined,
-                              });
-                              setQuickSale(f => ({ ...f, [rj.id]: null }));
-                            }}
-                          >
-                            <CheckCircle size={12} /> Save Sale
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="secondary"
-                            onClick={() => setQuickSale(f => ({ ...f, [rj.id]: null }))}
-                          >
-                            Cancel
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </Card>
-      )}
 
       {/* ── Legacy entries (backward compat) ── */}
       {(entries as any[]).length > 0 && (
@@ -748,7 +511,245 @@ function MiningPanel({ runId, currency }: { runId: number; currency: string }) {
         </div>
       )}
 
-      {/* ── Record sale ── */}
+    </div>
+  );
+}
+
+// ─── Sub-panel: Refining ──────────────────────────────────────────────────────
+function RefiningPanel({ runId, currency }: { runId: number; currency: string }) {
+  const qc = useQueryClient();
+  const { data } = useQuery({ queryKey: ['mining', runId], queryFn: () => miningApi.getPipeline(runId) });
+  const { bags = [], refiningJobs = [], sales = [] } = (data as any) || {};
+
+  const inv = () => qc.invalidateQueries({ queryKey: ['mining', runId] });
+  const invAll = () => {
+    qc.invalidateQueries({ queryKey: ['mining', runId] });
+    qc.invalidateQueries({ queryKey: ['run', runId] });
+    qc.invalidateQueries({ queryKey: ['inventory'] });
+  };
+
+  const addRefining = useMutation({ mutationFn: (d: unknown) => miningApi.addRefining(d), onSuccess: inv });
+  const removeRefining = useMutation({ mutationFn: (id: number) => miningApi.removeRefining(id), onSuccess: inv });
+  const finishRefining = useMutation({
+    mutationFn: ({ id, qty, eff }: { id: number; qty: number; eff: number }) =>
+      miningApi.updateRefining(id, { outputQuantity: qty, efficiency: eff, status: 'done', completedAt: new Date().toISOString() }),
+    onSuccess: () => { inv(); qc.invalidateQueries({ queryKey: ['inventory'] }); },
+  });
+  const addSale = useMutation({ mutationFn: (d: unknown) => salesApi.create(d), onSuccess: invAll });
+  const removeSale = useMutation({ mutationFn: (id: number) => salesApi.remove(id), onSuccess: invAll });
+
+  const [refineOpen, setRefineOpen] = useState<Record<number, boolean>>({});
+  const [refineForm, setRefineForm] = useState<Record<number, MineRefineForm>>({});
+  const [finishForm, setFinishForm] = useState<Record<number, { qty: string; eff: string }>>({});
+  const [saleForm, setSaleForm] = useState({ refiningJobId: '', commodity: '', quantitySold: '', pricePerUnit: '', location: '' });
+  type QuickSaleForm = { commodity: string; qty: string; price: string; location: string };
+  const [quickSale, setQuickSale] = useState<Record<number, QuickSaleForm | null>>({});
+
+  const openQuickSale = (rj: any) =>
+    setQuickSale(f => ({
+      ...f,
+      [rj.id]: { commodity: rj.output_material || '', qty: String(rj.output_quantity ?? ''), price: '', location: '' },
+    }));
+
+  const getRF = (id: number): MineRefineForm => refineForm[id] ?? DEFAULT_REFINE;
+  const setRF = (id: number, patch: Partial<MineRefineForm>) =>
+    setRefineForm(f => ({ ...f, [id]: { ...(f[id] ?? DEFAULT_REFINE), ...patch } }));
+
+  const committedBags = (bags as any[]).filter((b: any) => b.committed);
+
+  return (
+    <div className="space-y-4">
+
+      {/* ── Empty state ── */}
+      {committedBags.length === 0 && (refiningJobs as any[]).length === 0 && (sales as any[]).length === 0 && (
+        <div className="text-center py-10">
+          <p className="text-slate-400 font-medium">No refining activity yet</p>
+          <p className="text-sm text-slate-600 mt-1">Check in your mining bags from the Mining tab first, then queue jobs here.</p>
+        </div>
+      )}
+
+      {/* ── Queue refining job ── */}
+      {committedBags.length > 0 && (
+        <Card>
+          <CardHeader><CardTitle>Queue Refining Job</CardTitle></CardHeader>
+          <div className="divide-y divide-slate-700/40">
+            {committedBags.map((bag: any) => {
+              const lines: any[] = bag.lines || [];
+              const nonInertScu = lines.filter((l: any) => !l.is_inert).reduce((s: number, l: any) => s + (Number(l.scu) || 0), 0);
+              const isOpen = refineOpen[bag.id] ?? false;
+              const rf = getRF(bag.id);
+              return (
+                <div key={bag.id} className="py-3 first:pt-0 last:pb-0">
+                  <button
+                    onClick={() => setRefineOpen(f => ({ ...f, [bag.id]: !isOpen }))}
+                    className="flex items-center gap-2 w-full text-left group"
+                  >
+                    <ChevronRight size={13} className={`shrink-0 text-slate-500 transition-transform duration-150 ${isOpen ? 'rotate-90' : ''}`} />
+                    <span className="font-medium text-slate-200 text-sm">{bag.label}</span>
+                    {bag.committed_location && <span className="text-xs text-slate-500">@ {bag.committed_location}</span>}
+                    {nonInertScu > 0 && <span className="text-xs text-slate-500">· {nonInertScu.toFixed(2)} SCU ore</span>}
+                    {lines.filter((l: any) => !l.is_inert).map((l: any) => (
+                      <span key={l.id} className="text-xs text-slate-600">{l.material}</span>
+                    ))}
+                  </button>
+                  {isOpen && (
+                    <div className="mt-2 ml-5 grid grid-cols-2 gap-2 sm:grid-cols-3">
+                      <input
+                        placeholder="Output material *"
+                        value={rf.outputMaterial}
+                        onChange={e => setRF(bag.id, { outputMaterial: e.target.value })}
+                      />
+                      <input
+                        placeholder={bag.committed_location || 'Refinery name'}
+                        value={rf.refineryName}
+                        onChange={e => setRF(bag.id, { refineryName: e.target.value })}
+                      />
+                      <input
+                        placeholder="Method (e.g. Dinyx)"
+                        value={rf.refineryMethod}
+                        onChange={e => setRF(bag.id, { refineryMethod: e.target.value })}
+                      />
+                      <MathInput
+                        placeholder={nonInertScu > 0 ? `Input SCU (${nonInertScu.toFixed(2)})` : 'Input SCU'}
+                        value={rf.inputQuantity}
+                        onChange={e => setRF(bag.id, { inputQuantity: e.target.value })}
+                      />
+                      <MathInput
+                        placeholder="Refining cost"
+                        value={rf.costToRefine}
+                        onChange={e => setRF(bag.id, { costToRefine: e.target.value })}
+                      />
+                      <Button
+                        size="sm"
+                        onClick={() => {
+                          const inputQty = rf.inputQuantity ? Number(rf.inputQuantity) : nonInertScu;
+                          if (!rf.outputMaterial || !inputQty) return;
+                          addRefining.mutate({
+                            bagId: bag.id,
+                            inputQuantity: inputQty,
+                            outputMaterial: rf.outputMaterial,
+                            refineryName: rf.refineryName || bag.committed_location || undefined,
+                            refineryMethod: rf.refineryMethod || undefined,
+                            costToRefine: Number(rf.costToRefine) || 0,
+                          });
+                          setRefineOpen(f => ({ ...f, [bag.id]: false }));
+                          setRF(bag.id, DEFAULT_REFINE);
+                        }}
+                      >
+                        <Plus size={13} /> Queue Job
+                      </Button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+      )}
+
+      {/* ── Refining jobs ── */}
+      {(refiningJobs as any[]).length > 0 && (
+        <Card>
+          <CardHeader><CardTitle>Refining Jobs</CardTitle></CardHeader>
+          <div className="space-y-0">
+            {(refiningJobs as any[]).map((rj: any) => {
+              const isSold = (rj.sale_revenue ?? 0) > 0;
+              const needsSale = rj.status === 'done' && !isSold;
+              const qs = quickSale[rj.id];
+              return (
+                <div key={rj.id} className={`border-b border-slate-700/40 last:border-0 ${needsSale ? 'bg-amber-500/5' : ''}`}>
+                  <div className="grid grid-cols-[1fr_auto] gap-2 px-3 py-2.5 items-start">
+                    <div className="min-w-0 space-y-0.5">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-medium text-slate-200 text-sm">{rj.output_material}</span>
+                        <Badge label={rj.status} />
+                        {rj.refinery_name && <span className="text-xs text-slate-500">{rj.refinery_name}{rj.refinery_method ? ` · ${rj.refinery_method}` : ''}</span>}
+                      </div>
+                      <div className="flex items-center gap-3 text-xs text-slate-500 flex-wrap">
+                        <span>Source: {rj.source_label || '—'}</span>
+                        <span>In: {rj.input_quantity} SCU</span>
+                        {rj.output_quantity != null && <span>Out: {rj.output_quantity} SCU</span>}
+                        {rj.efficiency != null && <span>Yield: {rj.efficiency}%</span>}
+                        <span className="text-red-400">Cost: {fmtCurrency(rj.cost_to_refine, currency)}</span>
+                        {isSold && <span className="text-emerald-400 font-medium">Sold: {fmtCurrency(rj.sale_revenue, currency)}</span>}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {rj.status !== 'done' ? (
+                        <div className="flex gap-1">
+                          <MathInput
+                            placeholder="Out qty"
+                            className="w-20"
+                            value={finishForm[rj.id]?.qty || ''}
+                            onChange={e => setFinishForm(f => ({ ...f, [rj.id]: { ...f[rj.id], qty: e.target.value } }))}
+                          />
+                          <MathInput
+                            placeholder="%"
+                            className="w-14"
+                            value={finishForm[rj.id]?.eff || ''}
+                            onChange={e => setFinishForm(f => ({ ...f, [rj.id]: { ...f[rj.id], eff: e.target.value } }))}
+                          />
+                          <Button size="sm" variant="secondary" onClick={() => {
+                            const f = finishForm[rj.id];
+                            if (!f?.qty) return;
+                            finishRefining.mutate({ id: rj.id, qty: Number(f.qty), eff: Number(f.eff) || 0 });
+                          }}><CheckCircle size={12} /></Button>
+                        </div>
+                      ) : needsSale ? (
+                        <Button size="sm" variant="secondary" onClick={() => openQuickSale(rj)}>
+                          <DollarSign size={12} /> Record Sale
+                        </Button>
+                      ) : null}
+                      <Button variant="danger" size="sm" onClick={() => removeRefining.mutate(rj.id)}>
+                        <Trash2 size={12} />
+                      </Button>
+                    </div>
+                  </div>
+
+                  {qs && (
+                    <div className="px-3 pb-3 pt-1 bg-slate-800/40 border-t border-slate-700/40">
+                      <p className="text-xs text-slate-400 mb-2">Record the sale — links revenue to this run.</p>
+                      <div className="flex gap-2 flex-wrap items-end">
+                        <div className="flex-1 min-w-[130px]">
+                          <p className="text-xs text-slate-500 mb-1">Commodity</p>
+                          <input value={qs.commodity} onChange={e => setQuickSale(f => ({ ...f, [rj.id]: { ...f[rj.id]!, commodity: e.target.value } }))} placeholder="e.g. Quantanium" />
+                        </div>
+                        <div className="w-24">
+                          <p className="text-xs text-slate-500 mb-1">Qty sold</p>
+                          <MathInput value={qs.qty} onChange={e => setQuickSale(f => ({ ...f, [rj.id]: { ...f[rj.id]!, qty: e.target.value } }))} placeholder="SCU" />
+                        </div>
+                        <div className="w-32">
+                          <p className="text-xs text-slate-500 mb-1">Price / unit</p>
+                          <MathInput value={qs.price} onChange={e => setQuickSale(f => ({ ...f, [rj.id]: { ...f[rj.id]!, price: e.target.value } }))} placeholder={currency} />
+                        </div>
+                        <div className="w-36">
+                          <p className="text-xs text-slate-500 mb-1">Location</p>
+                          <input value={qs.location} onChange={e => setQuickSale(f => ({ ...f, [rj.id]: { ...f[rj.id]!, location: e.target.value } }))} placeholder="Optional" />
+                        </div>
+                        {qs.qty && qs.price && (
+                          <div className="text-sm text-emerald-400 font-semibold pb-0.5">
+                            = {fmtCurrency(Number(qs.qty) * Number(qs.price), currency)}
+                          </div>
+                        )}
+                        <div className="flex gap-1.5 pb-0.5">
+                          <Button size="sm" onClick={() => {
+                            if (!qs.commodity || !qs.qty || !qs.price) return;
+                            addSale.mutate({ runId, refiningJobId: rj.id, commodity: qs.commodity, quantitySold: Number(qs.qty), pricePerUnit: Number(qs.price), location: qs.location || undefined });
+                            setQuickSale(f => ({ ...f, [rj.id]: null }));
+                          }}><CheckCircle size={12} /> Save Sale</Button>
+                          <Button size="sm" variant="secondary" onClick={() => setQuickSale(f => ({ ...f, [rj.id]: null }))}>Cancel</Button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </Card>
+      )}
+
+      {/* ── Manual sale (not linked to a refining job) ── */}
       <Card>
         <CardHeader><CardTitle>Record Sale</CardTitle></CardHeader>
         <div className="grid grid-cols-3 gap-2">
@@ -770,18 +771,12 @@ function MiningPanel({ runId, currency }: { runId: number; currency: string }) {
         </div>
         <Button className="mt-2" size="sm" onClick={() => {
           if (!saleForm.commodity || !saleForm.quantitySold || !saleForm.pricePerUnit) return;
-          addSale.mutate({
-            runId,
-            refiningJobId: saleForm.refiningJobId ? Number(saleForm.refiningJobId) : undefined,
-            commodity: saleForm.commodity,
-            quantitySold: Number(saleForm.quantitySold),
-            pricePerUnit: Number(saleForm.pricePerUnit),
-            location: saleForm.location || undefined,
-          });
+          addSale.mutate({ runId, refiningJobId: saleForm.refiningJobId ? Number(saleForm.refiningJobId) : undefined, commodity: saleForm.commodity, quantitySold: Number(saleForm.quantitySold), pricePerUnit: Number(saleForm.pricePerUnit), location: saleForm.location || undefined });
           setSaleForm({ refiningJobId: '', commodity: '', quantitySold: '', pricePerUnit: '', location: '' });
         }}><DollarSign size={13} /> Record Sale</Button>
       </Card>
 
+      {/* ── Sales log ── */}
       {(sales as any[]).length > 0 && (
         <Card>
           <CardHeader><CardTitle>Sales</CardTitle></CardHeader>
@@ -1815,7 +1810,7 @@ function DeleteRunModal({ runId, runTitle, open, onClose }: { runId: number; run
 }
 
 // ─── Main RunDetail page ──────────────────────────────────────────────────────
-const TABS = ['overview', 'mining', 'trading', 'hauling', 'crafting', 'contracts', 'expenses', 'crew'] as const;
+const TABS = ['overview', 'mining', 'refining', 'trading', 'hauling', 'crafting', 'contracts', 'expenses', 'crew'] as const;
 type Tab = typeof TABS[number];
 
 export function RunDetail() {
@@ -2033,6 +2028,7 @@ export function RunDetail() {
           </div>
         )}
         {tab === 'mining' && <MiningPanel runId={runId} currency={currency} />}
+        {tab === 'refining' && <RefiningPanel runId={runId} currency={currency} />}
         {tab === 'trading' && <TradingPanel runId={runId} currency={currency} />}
         {tab === 'hauling' && <HaulingPanel runId={runId} currency={currency} />}
         {tab === 'crafting' && <CraftingPanel runId={runId} currency={currency} />}
