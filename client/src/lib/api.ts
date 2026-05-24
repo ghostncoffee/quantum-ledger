@@ -64,6 +64,7 @@ export const miningApi = {
   addOreLine: (bagId: number, d: unknown) => post(`/mining/bags/${bagId}/lines`, d),
   removeOreLine: (id: number) => del(`/mining/lines/${id}`),
   // Refining
+  getAllRefining: (params?: Record<string, unknown>) => get('/mining/refining/all', params),
   addRefining: (d: unknown) => post('/mining/refining', d),
   updateRefining: (id: number, d: unknown) => put(`/mining/refining/${id}`, d),
   removeRefining: (id: number) => del(`/mining/refining/${id}`),

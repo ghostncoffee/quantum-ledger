@@ -1,7 +1,7 @@
 import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard, Pickaxe, TrendingUp, Wrench, FileText,
-  Package, MapPin, Users, Car, BookOpen, ChevronRight, Gamepad2
+  Package, MapPin, Users, Car, BookOpen, ChevronRight, Gamepad2, FlaskConical,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -10,6 +10,7 @@ const nav = [
   { to: '/runs', icon: ChevronRight, label: 'All Runs' },
   { label: '─', divider: true },
   { to: '/mining', icon: Pickaxe, label: 'Mining' },
+  { to: '/refining', icon: FlaskConical, label: 'Refining' },
   { to: '/trading', icon: TrendingUp, label: 'Trading' },
   { to: '/crafting', icon: Wrench, label: 'Crafting' },
   { to: '/contracts', icon: FileText, label: 'Contracts' },
@@ -61,7 +62,7 @@ export function Sidebar() {
       </nav>
 
       <div className="px-4 py-3 border-t border-[#1e2d4f]">
-        <p className="text-xs text-slate-600">v0.1.0 — local only</p>
+        <p className="text-xs text-slate-600">v0.1.9 — local only</p>
       </div>
     </aside>
   );

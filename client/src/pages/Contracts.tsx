@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { contractsApi, gamesApi } from '@/lib/api';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
@@ -6,7 +7,7 @@ import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Table, Th, Td, Tr } from '@/components/ui/Table';
 import { fmtCurrency } from '@/lib/utils';
-import { CheckCircle } from 'lucide-react';
+import { CheckCircle, ExternalLink } from 'lucide-react';
 import { CONTRACT_TYPES } from '@/lib/utils';
 
 export function Contracts() {
@@ -78,7 +79,14 @@ export function Contracts() {
                   <Td className="text-emerald-400">{fmtCurrency(c.agreed_payout, c.currency)}</Td>
                   <Td className="text-amber-400">{c.bonus_payout ? fmtCurrency(c.bonus_payout, c.currency) : '—'}</Td>
                   <Td><Badge label={c.status} /></Td>
-                  <Td className="text-slate-500 text-xs">{c.run_title || `Run #${c.run_id}`}</Td>
+                  <Td>
+                    {c.run_id ? (
+                      <Link to={`/runs/${c.run_id}`} className="inline-flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300">
+                        {c.run_title || `Run #${c.run_id}`}
+                        <ExternalLink size={10} />
+                      </Link>
+                    ) : '—'}
+                  </Td>
                   <Td>
                     {c.status === 'active' && (
                       <Button size="sm" variant="secondary" onClick={() => complete.mutate(c.id)}>

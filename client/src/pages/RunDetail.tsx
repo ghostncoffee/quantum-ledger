@@ -4,7 +4,7 @@ import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   runsApi, miningApi, tradingApi, salesApi, craftingApi,
-  contractsApi, haulingApi, expensesApi, crewApi,
+  contractsApi, haulingApi, expensesApi, crewApi, inventoryApi,
 } from '@/lib/api';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -528,22 +528,36 @@ function RefiningPanel({ runId, currency }: { runId: number; currency: string })
     qc.invalidateQueries({ queryKey: ['inventory'] });
   };
 
-  const addRefining = useMutation({ mutationFn: (d: unknown) => miningApi.addRefining(d), onSuccess: inv });
-  const removeRefining = useMutation({ mutationFn: (id: number) => miningApi.removeRefining(id), onSuccess: inv });
-  const finishRefining = useMutation({
-    mutationFn: ({ id, qty, eff }: { id: number; qty: number; eff: number }) =>
-      miningApi.updateRefining(id, { outputQuantity: qty, efficiency: eff, status: 'done', completedAt: new Date().toISOString() }),
+  const addRefining  = useMutation({ mutationFn: (d: unknown) => miningApi.addRefining(d), onSuccess: inv });
+  const editRefining = useMutation({
+    mutationFn: ({ id, d }: { id: number; d: unknown }) => miningApi.updateRefining(id, d),
     onSuccess: () => { inv(); qc.invalidateQueries({ queryKey: ['inventory'] }); },
   });
-  const addSale = useMutation({ mutationFn: (d: unknown) => salesApi.create(d), onSuccess: invAll });
+  const removeRefining = useMutation({ mutationFn: (id: number) => miningApi.removeRefining(id), onSuccess: inv });
+  const addSale    = useMutation({ mutationFn: (d: unknown) => salesApi.create(d), onSuccess: invAll });
+  const editSale   = useMutation({ mutationFn: ({ id, d }: { id: number; d: unknown }) => salesApi.update(id, d), onSuccess: invAll });
   const removeSale = useMutation({ mutationFn: (id: number) => salesApi.remove(id), onSuccess: invAll });
 
-  const [refineOpen, setRefineOpen] = useState<Record<number, boolean>>({});
-  const [refineForm, setRefineForm] = useState<Record<number, MineRefineForm>>({});
+  // Per-location form for queueing a new job
+  type LocForm = { outputMaterial: string; refineryMethod: string; inputScu: string; outputScu: string; costToRefine: string };
+  const DEFAULT_LOC_FORM: LocForm = { outputMaterial: '', refineryMethod: '', inputScu: '', outputScu: '', costToRefine: '' };
+  const [locOpen, setLocOpen] = useState<Record<string, boolean>>({});
+  const [locForm, setLocForm] = useState<Record<string, LocForm>>({});
+  const setLF = (loc: string, patch: Partial<LocForm>) =>
+    setLocForm(f => ({ ...f, [loc]: { ...(f[loc] ?? DEFAULT_LOC_FORM), ...patch } }));
+
+  // Per-job inline edit
+  const [editingJob, setEditingJob] = useState<Record<number, any>>({});
+  // Per-job output (complete)
   const [finishForm, setFinishForm] = useState<Record<number, { qty: string; eff: string }>>({});
-  const [saleForm, setSaleForm] = useState({ refiningJobId: '', commodity: '', quantitySold: '', pricePerUnit: '', location: '' });
+  // Per-job quick-sale
   type QuickSaleForm = { commodity: string; qty: string; price: string; location: string };
   const [quickSale, setQuickSale] = useState<Record<number, QuickSaleForm | null>>({});
+  // Per-sale inline edit
+  const [editingSale, setEditingSale] = useState<Record<number, any>>({});
+
+  // Manual sale form
+  const [saleForm, setSaleForm] = useState({ refiningJobId: '', commodity: '', quantitySold: '', pricePerUnit: '', location: '' });
 
   const openQuickSale = (rj: any) =>
     setQuickSale(f => ({
@@ -551,11 +565,14 @@ function RefiningPanel({ runId, currency }: { runId: number; currency: string })
       [rj.id]: { commodity: rj.output_material || '', qty: String(rj.output_quantity ?? ''), price: '', location: '' },
     }));
 
-  const getRF = (id: number): MineRefineForm => refineForm[id] ?? DEFAULT_REFINE;
-  const setRF = (id: number, patch: Partial<MineRefineForm>) =>
-    setRefineForm(f => ({ ...f, [id]: { ...(f[id] ?? DEFAULT_REFINE), ...patch } }));
-
+  // Group committed bags by station
   const committedBags = (bags as any[]).filter((b: any) => b.committed);
+  const bagsByLocation = committedBags.reduce((acc: Record<string, any[]>, bag: any) => {
+    const loc = bag.committed_location || 'Unknown Station';
+    if (!acc[loc]) acc[loc] = [];
+    acc[loc].push(bag);
+    return acc;
+  }, {} as Record<string, any[]>);
 
   return (
     <div className="space-y-4">
@@ -568,76 +585,87 @@ function RefiningPanel({ runId, currency }: { runId: number; currency: string })
         </div>
       )}
 
-      {/* ── Queue refining job ── */}
-      {committedBags.length > 0 && (
+      {/* ── Queue refining job — one form per station ── */}
+      {Object.keys(bagsByLocation).length > 0 && (
         <Card>
           <CardHeader><CardTitle>Queue Refining Job</CardTitle></CardHeader>
           <div className="divide-y divide-slate-700/40">
-            {committedBags.map((bag: any) => {
-              const lines: any[] = bag.lines || [];
-              const nonInertScu = lines.filter((l: any) => !l.is_inert).reduce((s: number, l: any) => s + (Number(l.scu) || 0), 0);
-              const isOpen = refineOpen[bag.id] ?? false;
-              const rf = getRF(bag.id);
+            {Object.entries(bagsByLocation).map(([location, locBags]) => {
+              const allLines = locBags.flatMap((b: any) => (b.lines || []).filter((l: any) => !l.is_inert));
+              const totalOreScu = allLines.reduce((s: number, l: any) => s + (Number(l.scu) || 0), 0);
+              const isOpen = locOpen[location] ?? false;
+              const lf = locForm[location] ?? DEFAULT_LOC_FORM;
+
+              // Unique materials across all bags at this station
+              const materials = [...new Set(allLines.map((l: any) => l.material as string))];
+
               return (
-                <div key={bag.id} className="py-3 first:pt-0 last:pb-0">
+                <div key={location} className="py-3 first:pt-0 last:pb-0">
                   <button
-                    onClick={() => setRefineOpen(f => ({ ...f, [bag.id]: !isOpen }))}
+                    onClick={() => setLocOpen(f => ({ ...f, [location]: !isOpen }))}
                     className="flex items-center gap-2 w-full text-left group"
                   >
                     <ChevronRight size={13} className={`shrink-0 text-slate-500 transition-transform duration-150 ${isOpen ? 'rotate-90' : ''}`} />
-                    <span className="font-medium text-slate-200 text-sm">{bag.label}</span>
-                    {bag.committed_location && <span className="text-xs text-slate-500">@ {bag.committed_location}</span>}
-                    {nonInertScu > 0 && <span className="text-xs text-slate-500">· {nonInertScu.toFixed(2)} SCU ore</span>}
-                    {lines.filter((l: any) => !l.is_inert).map((l: any) => (
-                      <span key={l.id} className="text-xs text-slate-600">{l.material}</span>
-                    ))}
+                    <span className="font-semibold text-slate-200 text-sm">{location}</span>
+                    <span className="text-xs text-slate-500">{locBags.length} bag{locBags.length !== 1 ? 's' : ''}</span>
+                    {totalOreScu > 0 && <span className="text-xs text-orange-400 font-medium">{totalOreScu.toFixed(2)} SCU ore</span>}
+                    {materials.map(m => <span key={m} className="text-xs text-slate-600">{m}</span>)}
                   </button>
                   {isOpen && (
-                    <div className="mt-2 ml-5 grid grid-cols-2 gap-2 sm:grid-cols-3">
-                      <input
-                        placeholder="Output material *"
-                        value={rf.outputMaterial}
-                        onChange={e => setRF(bag.id, { outputMaterial: e.target.value })}
-                      />
-                      <input
-                        placeholder={bag.committed_location || 'Refinery name'}
-                        value={rf.refineryName}
-                        onChange={e => setRF(bag.id, { refineryName: e.target.value })}
-                      />
-                      <input
-                        placeholder="Method (e.g. Dinyx)"
-                        value={rf.refineryMethod}
-                        onChange={e => setRF(bag.id, { refineryMethod: e.target.value })}
-                      />
-                      <MathInput
-                        placeholder={nonInertScu > 0 ? `Input SCU (${nonInertScu.toFixed(2)})` : 'Input SCU'}
-                        value={rf.inputQuantity}
-                        onChange={e => setRF(bag.id, { inputQuantity: e.target.value })}
-                      />
-                      <MathInput
-                        placeholder="Refining cost"
-                        value={rf.costToRefine}
-                        onChange={e => setRF(bag.id, { costToRefine: e.target.value })}
-                      />
-                      <Button
-                        size="sm"
-                        onClick={() => {
-                          const inputQty = rf.inputQuantity ? Number(rf.inputQuantity) : nonInertScu;
-                          if (!rf.outputMaterial || !inputQty) return;
-                          addRefining.mutate({
-                            bagId: bag.id,
-                            inputQuantity: inputQty,
-                            outputMaterial: rf.outputMaterial,
-                            refineryName: rf.refineryName || bag.committed_location || undefined,
-                            refineryMethod: rf.refineryMethod || undefined,
-                            costToRefine: Number(rf.costToRefine) || 0,
-                          });
-                          setRefineOpen(f => ({ ...f, [bag.id]: false }));
-                          setRF(bag.id, DEFAULT_REFINE);
-                        }}
-                      >
-                        <Plus size={13} /> Queue Job
-                      </Button>
+                    <div className="mt-3 ml-5 space-y-2">
+                      {/* Show bags at this station */}
+                      <div className="flex flex-wrap gap-1.5 mb-1">
+                        {locBags.map((b: any) => (
+                          <span key={b.id} className="text-xs bg-slate-800 px-2 py-0.5 rounded text-slate-400">{b.label}</span>
+                        ))}
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                        <input
+                          placeholder="Output material *"
+                          value={lf.outputMaterial}
+                          onChange={e => setLF(location, { outputMaterial: e.target.value })}
+                        />
+                        <input
+                          placeholder="Method (e.g. Dinyx)"
+                          value={lf.refineryMethod}
+                          onChange={e => setLF(location, { refineryMethod: e.target.value })}
+                        />
+                        <MathInput
+                          placeholder={totalOreScu > 0 ? `Input SCU (${totalOreScu.toFixed(2)})` : 'Input SCU *'}
+                          value={lf.inputScu}
+                          onChange={e => setLF(location, { inputScu: e.target.value })}
+                        />
+                        <MathInput
+                          placeholder="Expected output SCU"
+                          value={lf.outputScu}
+                          onChange={e => setLF(location, { outputScu: e.target.value })}
+                        />
+                        <MathInput
+                          placeholder="Refining cost"
+                          value={lf.costToRefine}
+                          onChange={e => setLF(location, { costToRefine: e.target.value })}
+                        />
+                        <Button
+                          size="sm"
+                          onClick={() => {
+                            const inputQty = lf.inputScu ? Number(lf.inputScu) : totalOreScu;
+                            if (!lf.outputMaterial || !inputQty) return;
+                            addRefining.mutate({
+                              bagId: locBags[0].id, // first bag as anchor
+                              inputQuantity: inputQty,
+                              outputMaterial: lf.outputMaterial,
+                              outputQuantity: lf.outputScu ? Number(lf.outputScu) : undefined,
+                              refineryName: location,
+                              refineryMethod: lf.refineryMethod || undefined,
+                              costToRefine: Number(lf.costToRefine) || 0,
+                            });
+                            setLocOpen(f => ({ ...f, [location]: false }));
+                            setLocForm(f => ({ ...f, [location]: DEFAULT_LOC_FORM }));
+                          }}
+                        >
+                          <Plus size={13} /> Queue Job
+                        </Button>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -651,71 +679,127 @@ function RefiningPanel({ runId, currency }: { runId: number; currency: string })
       {(refiningJobs as any[]).length > 0 && (
         <Card>
           <CardHeader><CardTitle>Refining Jobs</CardTitle></CardHeader>
-          <div className="space-y-0">
+          <div className="space-y-0 divide-y divide-slate-700/30">
             {(refiningJobs as any[]).map((rj: any) => {
               const isSold = (rj.sale_revenue ?? 0) > 0;
               const needsSale = rj.status === 'done' && !isSold;
               const qs = quickSale[rj.id];
+              const editing = editingJob[rj.id];
+
               return (
-                <div key={rj.id} className={`border-b border-slate-700/40 last:border-0 ${needsSale ? 'bg-amber-500/5' : ''}`}>
-                  <div className="grid grid-cols-[1fr_auto] gap-2 px-3 py-2.5 items-start">
-                    <div className="min-w-0 space-y-0.5">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-medium text-slate-200 text-sm">{rj.output_material}</span>
-                        <Badge label={rj.status} />
-                        {rj.refinery_name && <span className="text-xs text-slate-500">{rj.refinery_name}{rj.refinery_method ? ` · ${rj.refinery_method}` : ''}</span>}
-                      </div>
-                      <div className="flex items-center gap-3 text-xs text-slate-500 flex-wrap">
-                        <span>Source: {rj.source_label || '—'}</span>
-                        <span>In: {rj.input_quantity} SCU</span>
-                        {rj.output_quantity != null && <span>Out: {rj.output_quantity} SCU</span>}
-                        {rj.efficiency != null && <span>Yield: {rj.efficiency}%</span>}
-                        <span className="text-red-400">Cost: {fmtCurrency(rj.cost_to_refine, currency)}</span>
-                        {isSold && <span className="text-emerald-400 font-medium">Sold: {fmtCurrency(rj.sale_revenue, currency)}</span>}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      {rj.status !== 'done' ? (
-                        <div className="flex gap-1">
-                          <MathInput
-                            placeholder="Out qty"
-                            className="w-20"
-                            value={finishForm[rj.id]?.qty || ''}
-                            onChange={e => setFinishForm(f => ({ ...f, [rj.id]: { ...f[rj.id], qty: e.target.value } }))}
-                          />
-                          <MathInput
-                            placeholder="%"
-                            className="w-14"
-                            value={finishForm[rj.id]?.eff || ''}
-                            onChange={e => setFinishForm(f => ({ ...f, [rj.id]: { ...f[rj.id], eff: e.target.value } }))}
-                          />
-                          <Button size="sm" variant="secondary" onClick={() => {
-                            const f = finishForm[rj.id];
-                            if (!f?.qty) return;
-                            finishRefining.mutate({ id: rj.id, qty: Number(f.qty), eff: Number(f.eff) || 0 });
-                          }}><CheckCircle size={12} /></Button>
+                <div key={rj.id} className={`py-2.5 ${needsSale ? 'bg-amber-500/5' : ''}`}>
+                  {editing ? (
+                    /* ── Inline edit mode ── */
+                    <div className="px-3 space-y-2">
+                      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                        <div>
+                          <p className="text-xs text-slate-500 mb-1">Output material</p>
+                          <input value={editing.output_material} onChange={e => setEditingJob(f => ({ ...f, [rj.id]: { ...f[rj.id], output_material: e.target.value } }))} />
                         </div>
-                      ) : needsSale ? (
-                        <Button size="sm" variant="secondary" onClick={() => openQuickSale(rj)}>
-                          <DollarSign size={12} /> Record Sale
-                        </Button>
-                      ) : null}
-                      <Button variant="danger" size="sm" onClick={() => removeRefining.mutate(rj.id)}>
-                        <Trash2 size={12} />
-                      </Button>
+                        <div>
+                          <p className="text-xs text-slate-500 mb-1">Refinery / station</p>
+                          <input value={editing.refinery_name || ''} onChange={e => setEditingJob(f => ({ ...f, [rj.id]: { ...f[rj.id], refinery_name: e.target.value } }))} />
+                        </div>
+                        <div>
+                          <p className="text-xs text-slate-500 mb-1">Method</p>
+                          <input value={editing.refinery_method || ''} onChange={e => setEditingJob(f => ({ ...f, [rj.id]: { ...f[rj.id], refinery_method: e.target.value } }))} />
+                        </div>
+                        <div>
+                          <p className="text-xs text-slate-500 mb-1">Input SCU</p>
+                          <MathInput value={String(editing.input_quantity)} onChange={e => setEditingJob(f => ({ ...f, [rj.id]: { ...f[rj.id], input_quantity: e.target.value } }))} />
+                        </div>
+                        <div>
+                          <p className="text-xs text-slate-500 mb-1">Output SCU</p>
+                          <MathInput value={editing.output_quantity != null ? String(editing.output_quantity) : ''} onChange={e => setEditingJob(f => ({ ...f, [rj.id]: { ...f[rj.id], output_quantity: e.target.value } }))} placeholder="—" />
+                        </div>
+                        <div>
+                          <p className="text-xs text-slate-500 mb-1">Refining cost</p>
+                          <MathInput value={String(editing.cost_to_refine || 0)} onChange={e => setEditingJob(f => ({ ...f, [rj.id]: { ...f[rj.id], cost_to_refine: e.target.value } }))} />
+                        </div>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button size="sm" onClick={() => {
+                          editRefining.mutate({ id: rj.id, d: {
+                            outputMaterial: editing.output_material,
+                            refineryName: editing.refinery_name || undefined,
+                            refineryMethod: editing.refinery_method || undefined,
+                            inputQuantity: Number(editing.input_quantity),
+                            outputQuantity: editing.output_quantity !== '' && editing.output_quantity != null ? Number(editing.output_quantity) : undefined,
+                            costToRefine: Number(editing.cost_to_refine) || 0,
+                          }});
+                          setEditingJob(f => { const n = { ...f }; delete n[rj.id]; return n; });
+                        }}><CheckCircle size={12} /> Save</Button>
+                        <Button size="sm" variant="secondary" onClick={() => setEditingJob(f => { const n = { ...f }; delete n[rj.id]; return n; })}>Cancel</Button>
+                      </div>
                     </div>
-                  </div>
+                  ) : (
+                    /* ── Display mode ── */
+                    <div className="grid grid-cols-[1fr_auto] gap-2 px-3 items-start">
+                      <div className="min-w-0 space-y-0.5">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-medium text-slate-200 text-sm">{rj.output_material}</span>
+                          <Badge label={rj.status} />
+                          {rj.refinery_name && <span className="text-xs text-slate-500">{rj.refinery_name}{rj.refinery_method ? ` · ${rj.refinery_method}` : ''}</span>}
+                        </div>
+                        <div className="flex items-center gap-3 text-xs text-slate-500 flex-wrap">
+                          <span>In: <span className="text-slate-300">{rj.input_quantity} SCU</span></span>
+                          {rj.output_quantity != null
+                            ? <span>Out: <span className="text-emerald-400">{rj.output_quantity} SCU</span></span>
+                            : <span className="text-slate-600">Out: pending</span>
+                          }
+                          {rj.efficiency != null && <span>Yield: {rj.efficiency}%</span>}
+                          <span className="text-red-400">Cost: {fmtCurrency(rj.cost_to_refine, currency)}</span>
+                          {isSold && <span className="text-emerald-400 font-medium">Sold: {fmtCurrency(rj.sale_revenue, currency)}</span>}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0 flex-wrap justify-end">
+                        <Button size="sm" variant="secondary" onClick={() => setEditingJob(f => ({ ...f, [rj.id]: { ...rj } }))}>
+                          <Pencil size={11} />
+                        </Button>
+                        {rj.status !== 'done' && (
+                          <>
+                            <MathInput
+                              placeholder="Out SCU"
+                              className="w-20"
+                              value={finishForm[rj.id]?.qty || ''}
+                              onChange={e => setFinishForm(f => ({ ...f, [rj.id]: { ...f[rj.id], qty: e.target.value } }))}
+                            />
+                            <MathInput
+                              placeholder="Yield %"
+                              className="w-14"
+                              value={finishForm[rj.id]?.eff || ''}
+                              onChange={e => setFinishForm(f => ({ ...f, [rj.id]: { ...f[rj.id], eff: e.target.value } }))}
+                            />
+                            <Button size="sm" variant="secondary" onClick={() => {
+                              const f = finishForm[rj.id];
+                              if (!f?.qty) return;
+                              editRefining.mutate({ id: rj.id, d: { outputQuantity: Number(f.qty), efficiency: Number(f.eff) || 0, status: 'done', completedAt: new Date().toISOString() } });
+                              setFinishForm(f2 => { const n = { ...f2 }; delete n[rj.id]; return n; });
+                            }}><CheckCircle size={12} /> Done</Button>
+                          </>
+                        )}
+                        {needsSale && (
+                          <Button size="sm" variant="secondary" onClick={() => openQuickSale(rj)}>
+                            <DollarSign size={12} /> Sell
+                          </Button>
+                        )}
+                        <Button variant="danger" size="sm" onClick={() => removeRefining.mutate(rj.id)}>
+                          <Trash2 size={12} />
+                        </Button>
+                      </div>
+                    </div>
+                  )}
 
                   {qs && (
-                    <div className="px-3 pb-3 pt-1 bg-slate-800/40 border-t border-slate-700/40">
-                      <p className="text-xs text-slate-400 mb-2">Record the sale — links revenue to this run.</p>
+                    <div className="mx-3 mt-2 p-3 bg-slate-800/50 rounded-lg border border-slate-700/40">
+                      <p className="text-xs text-slate-400 mb-2">Record the sale for this refined ore</p>
                       <div className="flex gap-2 flex-wrap items-end">
                         <div className="flex-1 min-w-[130px]">
                           <p className="text-xs text-slate-500 mb-1">Commodity</p>
                           <input value={qs.commodity} onChange={e => setQuickSale(f => ({ ...f, [rj.id]: { ...f[rj.id]!, commodity: e.target.value } }))} placeholder="e.g. Quantanium" />
                         </div>
                         <div className="w-24">
-                          <p className="text-xs text-slate-500 mb-1">Qty sold</p>
+                          <p className="text-xs text-slate-500 mb-1">Qty (SCU)</p>
                           <MathInput value={qs.qty} onChange={e => setQuickSale(f => ({ ...f, [rj.id]: { ...f[rj.id]!, qty: e.target.value } }))} placeholder="SCU" />
                         </div>
                         <div className="w-32">
@@ -723,20 +807,20 @@ function RefiningPanel({ runId, currency }: { runId: number; currency: string })
                           <MathInput value={qs.price} onChange={e => setQuickSale(f => ({ ...f, [rj.id]: { ...f[rj.id]!, price: e.target.value } }))} placeholder={currency} />
                         </div>
                         <div className="w-36">
-                          <p className="text-xs text-slate-500 mb-1">Location</p>
-                          <input value={qs.location} onChange={e => setQuickSale(f => ({ ...f, [rj.id]: { ...f[rj.id]!, location: e.target.value } }))} placeholder="Optional" />
+                          <p className="text-xs text-slate-500 mb-1">Location (opt.)</p>
+                          <input value={qs.location} onChange={e => setQuickSale(f => ({ ...f, [rj.id]: { ...f[rj.id]!, location: e.target.value } }))} placeholder="Where sold" />
                         </div>
                         {qs.qty && qs.price && (
-                          <div className="text-sm text-emerald-400 font-semibold pb-0.5">
+                          <span className="text-sm text-emerald-400 font-semibold pb-0.5">
                             = {fmtCurrency(Number(qs.qty) * Number(qs.price), currency)}
-                          </div>
+                          </span>
                         )}
                         <div className="flex gap-1.5 pb-0.5">
                           <Button size="sm" onClick={() => {
                             if (!qs.commodity || !qs.qty || !qs.price) return;
                             addSale.mutate({ runId, refiningJobId: rj.id, commodity: qs.commodity, quantitySold: Number(qs.qty), pricePerUnit: Number(qs.price), location: qs.location || undefined });
                             setQuickSale(f => ({ ...f, [rj.id]: null }));
-                          }}><CheckCircle size={12} /> Save Sale</Button>
+                          }}><CheckCircle size={12} /> Save</Button>
                           <Button size="sm" variant="secondary" onClick={() => setQuickSale(f => ({ ...f, [rj.id]: null }))}>Cancel</Button>
                         </div>
                       </div>
@@ -752,17 +836,17 @@ function RefiningPanel({ runId, currency }: { runId: number; currency: string })
       {/* ── Manual sale (not linked to a refining job) ── */}
       <Card>
         <CardHeader><CardTitle>Record Sale</CardTitle></CardHeader>
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
           <select value={saleForm.refiningJobId} onChange={e => setSaleForm(f => ({ ...f, refiningJobId: e.target.value }))}>
             <option value="">Link refining job (optional)</option>
             {(refiningJobs as any[]).filter((rj: any) => rj.status === 'done').map((rj: any) => (
-              <option key={rj.id} value={rj.id}>{rj.output_material} — {rj.output_quantity} SCU</option>
+              <option key={rj.id} value={rj.id}>{rj.output_material} — {rj.input_quantity} SCU in</option>
             ))}
           </select>
           <input placeholder="Commodity" value={saleForm.commodity} onChange={e => setSaleForm(f => ({ ...f, commodity: e.target.value }))} />
-          <MathInput placeholder="Qty sold" value={saleForm.quantitySold} onChange={e => setSaleForm(f => ({ ...f, quantitySold: e.target.value }))} />
+          <MathInput placeholder="Qty sold (SCU)" value={saleForm.quantitySold} onChange={e => setSaleForm(f => ({ ...f, quantitySold: e.target.value }))} />
           <MathInput placeholder="Price per unit" value={saleForm.pricePerUnit} onChange={e => setSaleForm(f => ({ ...f, pricePerUnit: e.target.value }))} />
-          <input placeholder="Location" value={saleForm.location} onChange={e => setSaleForm(f => ({ ...f, location: e.target.value }))} />
+          <input placeholder="Location (optional)" value={saleForm.location} onChange={e => setSaleForm(f => ({ ...f, location: e.target.value }))} />
           {saleForm.quantitySold && saleForm.pricePerUnit && (
             <div className="flex items-center text-emerald-400 text-sm font-semibold">
               = {fmtCurrency(Number(saleForm.quantitySold) * Number(saleForm.pricePerUnit), currency)}
@@ -783,16 +867,45 @@ function RefiningPanel({ runId, currency }: { runId: number; currency: string })
           <Table>
             <thead><tr><Th>Commodity</Th><Th>Qty</Th><Th>Price/unit</Th><Th>Revenue</Th><Th>Location</Th><Th /></tr></thead>
             <tbody>
-              {(sales as any[]).map((s: any) => (
-                <Tr key={s.id}>
-                  <Td className="font-medium">{s.commodity}</Td>
-                  <Td>{s.quantity_sold}</Td>
-                  <Td>{fmtCurrency(s.price_per_unit, currency)}</Td>
-                  <Td className="text-emerald-400 font-semibold">{fmtCurrency(s.total_revenue, currency)}</Td>
-                  <Td className="text-slate-500">{s.location || '—'}</Td>
-                  <Td><Button variant="danger" size="sm" onClick={() => removeSale.mutate(s.id)}><Trash2 size={12} /></Button></Td>
-                </Tr>
-              ))}
+              {(sales as any[]).map((s: any) => {
+                const es = editingSale[s.id];
+                return (
+                  <Tr key={s.id}>
+                    {es ? (
+                      <>
+                        <Td><input className="w-full" value={es.commodity} onChange={e => setEditingSale(f => ({ ...f, [s.id]: { ...f[s.id], commodity: e.target.value } }))} /></Td>
+                        <Td><MathInput className="w-20" value={String(es.quantity_sold)} onChange={e => setEditingSale(f => ({ ...f, [s.id]: { ...f[s.id], quantity_sold: e.target.value } }))} /></Td>
+                        <Td><MathInput className="w-24" value={String(es.price_per_unit)} onChange={e => setEditingSale(f => ({ ...f, [s.id]: { ...f[s.id], price_per_unit: e.target.value } }))} /></Td>
+                        <Td className="text-emerald-400">{fmtCurrency(Number(es.quantity_sold) * Number(es.price_per_unit), currency)}</Td>
+                        <Td><input className="w-full" value={es.location || ''} onChange={e => setEditingSale(f => ({ ...f, [s.id]: { ...f[s.id], location: e.target.value } }))} placeholder="Optional" /></Td>
+                        <Td>
+                          <div className="flex gap-1">
+                            <Button size="sm" onClick={() => {
+                              editSale.mutate({ id: s.id, d: { commodity: es.commodity, quantitySold: Number(es.quantity_sold), pricePerUnit: Number(es.price_per_unit), location: es.location || undefined } });
+                              setEditingSale(f => { const n = { ...f }; delete n[s.id]; return n; });
+                            }}><CheckCircle size={12} /></Button>
+                            <Button size="sm" variant="secondary" onClick={() => setEditingSale(f => { const n = { ...f }; delete n[s.id]; return n; })}>✕</Button>
+                          </div>
+                        </Td>
+                      </>
+                    ) : (
+                      <>
+                        <Td className="font-medium text-slate-200">{s.commodity}</Td>
+                        <Td>{s.quantity_sold}</Td>
+                        <Td>{fmtCurrency(s.price_per_unit, currency)}</Td>
+                        <Td className="text-emerald-400 font-semibold">{fmtCurrency(s.total_revenue, currency)}</Td>
+                        <Td className="text-slate-500">{s.location || '—'}</Td>
+                        <Td>
+                          <div className="flex gap-1">
+                            <Button size="sm" variant="secondary" onClick={() => setEditingSale(f => ({ ...f, [s.id]: { ...s } }))}><Pencil size={11} /></Button>
+                            <Button variant="danger" size="sm" onClick={() => removeSale.mutate(s.id)}><Trash2 size={12} /></Button>
+                          </div>
+                        </Td>
+                      </>
+                    )}
+                  </Tr>
+                );
+              })}
             </tbody>
           </Table>
         </Card>
@@ -916,6 +1029,7 @@ function HaulingPanel({ runId, currency }: { runId: number; currency: string }) 
     cargoType: '', scuAmount: '', pickupLocation: '',
     deliveryLocation: '', agreedPayout: '', bonusPayout: '', notes: '',
   });
+  const [editingJob, setEditingJob] = useState<Record<number, any>>({});
 
   const add = useMutation({
     mutationFn: (d: unknown) => haulingApi.create(d),
@@ -934,6 +1048,13 @@ function HaulingPanel({ runId, currency }: { runId: number; currency: string }) 
   const advance = useMutation({
     mutationFn: ({ id, status }: { id: number; status: string }) =>
       haulingApi.update(id, { status }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['hauling', runId] });
+      qc.invalidateQueries({ queryKey: ['run', runId] });
+    },
+  });
+  const update = useMutation({
+    mutationFn: ({ id, d }: { id: number; d: unknown }) => haulingApi.update(id, d),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['hauling', runId] });
       qc.invalidateQueries({ queryKey: ['run', runId] });
@@ -989,57 +1110,117 @@ function HaulingPanel({ runId, currency }: { runId: number; currency: string }) 
 
       {(jobs as any[]).length > 0 && (
         <div className="space-y-3">
-          {(jobs as any[]).map((j: any) => (
-            <Card key={j.id}>
-              <div className="flex items-start justify-between mb-2">
-                <div>
-                  <span className="font-semibold text-slate-200">{j.cargo_type || 'Unnamed cargo'}</span>
-                  {j.scu_amount != null && (
-                    <span className="ml-2 text-sm text-slate-400">{j.scu_amount} SCU</span>
-                  )}
-                  {(j.pickup_location || j.delivery_location) && (
-                    <p className="text-xs text-slate-500 mt-0.5">
-                      {j.pickup_location || '?'} → {j.delivery_location || '?'}
-                    </p>
-                  )}
-                  {j.notes && <p className="text-xs text-slate-500 italic mt-0.5">{j.notes}</p>}
-                </div>
-                <div className="flex items-center gap-2">
-                  <Badge label={j.status} />
-                  <Button variant="danger" size="sm" onClick={() => remove.mutate(j.id)}>
-                    <Trash2 size={12} />
-                  </Button>
-                </div>
-              </div>
+          {(jobs as any[]).map((j: any) => {
+            const ej = editingJob[j.id];
+            return (
+              <Card key={j.id}>
+                {ej ? (
+                  /* ── Edit mode ── */
+                  <div className="space-y-2">
+                    <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
+                      <div>
+                        <p className="text-xs text-slate-500 mb-1">Cargo type</p>
+                        <input value={ej.cargo_type || ''} placeholder="Cargo type" onChange={e => setEditingJob(f => ({ ...f, [j.id]: { ...f[j.id], cargo_type: e.target.value } }))} />
+                      </div>
+                      <div>
+                        <p className="text-xs text-slate-500 mb-1">SCU amount</p>
+                        <MathInput value={ej.scu_amount != null ? String(ej.scu_amount) : ''} placeholder="SCU" onChange={e => setEditingJob(f => ({ ...f, [j.id]: { ...f[j.id], scu_amount: e.target.value } }))} />
+                      </div>
+                      <div>
+                        <p className="text-xs text-slate-500 mb-1">Agreed payout</p>
+                        <MathInput value={String(ej.agreed_payout ?? '')} onChange={e => setEditingJob(f => ({ ...f, [j.id]: { ...f[j.id], agreed_payout: e.target.value } }))} />
+                      </div>
+                      <div>
+                        <p className="text-xs text-slate-500 mb-1">Pickup</p>
+                        <input value={ej.pickup_location || ''} placeholder="Pickup location" onChange={e => setEditingJob(f => ({ ...f, [j.id]: { ...f[j.id], pickup_location: e.target.value } }))} />
+                      </div>
+                      <div>
+                        <p className="text-xs text-slate-500 mb-1">Delivery</p>
+                        <input value={ej.delivery_location || ''} placeholder="Delivery location" onChange={e => setEditingJob(f => ({ ...f, [j.id]: { ...f[j.id], delivery_location: e.target.value } }))} />
+                      </div>
+                      <div>
+                        <p className="text-xs text-slate-500 mb-1">Bonus</p>
+                        <MathInput value={ej.bonus_payout != null ? String(ej.bonus_payout) : ''} placeholder="Bonus" onChange={e => setEditingJob(f => ({ ...f, [j.id]: { ...f[j.id], bonus_payout: e.target.value } }))} />
+                      </div>
+                      <div className="col-span-2 sm:col-span-3">
+                        <p className="text-xs text-slate-500 mb-1">Notes</p>
+                        <input value={ej.notes || ''} placeholder="Notes (optional)" onChange={e => setEditingJob(f => ({ ...f, [j.id]: { ...f[j.id], notes: e.target.value } }))} />
+                      </div>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button size="sm" onClick={() => {
+                        update.mutate({ id: j.id, d: {
+                          cargoType: ej.cargo_type || undefined,
+                          scuAmount: ej.scu_amount !== '' && ej.scu_amount != null ? Number(ej.scu_amount) : undefined,
+                          pickupLocation: ej.pickup_location || undefined,
+                          deliveryLocation: ej.delivery_location || undefined,
+                          agreedPayout: Number(ej.agreed_payout),
+                          bonusPayout: ej.bonus_payout !== '' && ej.bonus_payout != null ? Number(ej.bonus_payout) : 0,
+                          notes: ej.notes || undefined,
+                        }});
+                        setEditingJob(f => { const n = { ...f }; delete n[j.id]; return n; });
+                      }}><CheckCircle size={12} /> Save</Button>
+                      <Button size="sm" variant="secondary" onClick={() => setEditingJob(f => { const n = { ...f }; delete n[j.id]; return n; })}>Cancel</Button>
+                    </div>
+                  </div>
+                ) : (
+                  /* ── Display mode ── */
+                  <>
+                    <div className="flex items-start justify-between mb-2">
+                      <div>
+                        <span className="font-semibold text-slate-200">{j.cargo_type || 'Unnamed cargo'}</span>
+                        {j.scu_amount != null && (
+                          <span className="ml-2 text-sm text-slate-400">{j.scu_amount} SCU</span>
+                        )}
+                        {(j.pickup_location || j.delivery_location) && (
+                          <p className="text-xs text-slate-500 mt-0.5">
+                            {j.pickup_location || '?'} → {j.delivery_location || '?'}
+                          </p>
+                        )}
+                        {j.notes && <p className="text-xs text-slate-500 italic mt-0.5">{j.notes}</p>}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Badge label={j.status} />
+                        <Button size="sm" variant="secondary" onClick={() => setEditingJob(f => ({ ...f, [j.id]: { ...j } }))} title="Edit">
+                          <Pencil size={11} />
+                        </Button>
+                        <Button variant="danger" size="sm" onClick={() => remove.mutate(j.id)}>
+                          <Trash2 size={12} />
+                        </Button>
+                      </div>
+                    </div>
 
-              <div className="grid grid-cols-3 gap-3 text-sm">
-                <div>
-                  <p className="text-xs text-slate-500">Payout</p>
-                  <p className="text-emerald-400 font-semibold">{fmtCurrency(j.agreed_payout, currency)}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-slate-500">Bonus</p>
-                  <p className="text-amber-400">{j.bonus_payout ? fmtCurrency(j.bonus_payout, currency) : '—'}</p>
-                </div>
-                <div>
-                  <p className="text-xs text-slate-500">Total</p>
-                  <p className="text-emerald-400">{fmtCurrency(j.agreed_payout + (j.bonus_payout || 0), currency)}</p>
-                </div>
-              </div>
+                    <div className="grid grid-cols-3 gap-3 text-sm">
+                      <div>
+                        <p className="text-xs text-slate-500">Payout</p>
+                        <p className="text-emerald-400 font-semibold">{fmtCurrency(j.agreed_payout, currency)}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-slate-500">Bonus</p>
+                        <p className="text-amber-400">{j.bonus_payout ? fmtCurrency(j.bonus_payout, currency) : '—'}</p>
+                      </div>
+                      <div>
+                        <p className="text-xs text-slate-500">Total</p>
+                        <p className="text-emerald-400">{fmtCurrency(j.agreed_payout + (j.bonus_payout || 0), currency)}</p>
+                      </div>
+                    </div>
 
-              {j.status !== 'delivered' && NEXT_STATUS[j.status] && (
-                <div className="mt-2 pt-2 border-t border-[#1e2d4f]">
-                  <Button
-                    size="sm"
-                    variant={j.status === 'in_transit' ? 'primary' : 'secondary'}
-                    onClick={() => advance.mutate({ id: j.id, status: NEXT_STATUS[j.status] })}
-                  >
-                    <CheckCircle size={12} /> {NEXT_LABEL[j.status]}
-                  </Button>
-                </div>
-              )}
-            </Card>
-          ))}
+                    {j.status !== 'delivered' && NEXT_STATUS[j.status] && (
+                      <div className="mt-2 pt-2 border-t border-[#1e2d4f]">
+                        <Button
+                          size="sm"
+                          variant={j.status === 'in_transit' ? 'primary' : 'secondary'}
+                          onClick={() => advance.mutate({ id: j.id, status: NEXT_STATUS[j.status] })}
+                        >
+                          <CheckCircle size={12} /> {NEXT_LABEL[j.status]}
+                        </Button>
+                      </div>
+                    )}
+                  </>
+                )}
+              </Card>
+            );
+          })}
         </div>
       )}
     </div>
@@ -1047,31 +1228,64 @@ function HaulingPanel({ runId, currency }: { runId: number; currency: string }) 
 }
 
 // ─── Sub-panel: Crafting ──────────────────────────────────────────────────────
-function CraftingPanel({ runId, currency }: { runId: number; currency: string }) {
+function CraftingPanel({ runId, currency, gameId }: { runId: number; currency: string; gameId: number }) {
   const qc = useQueryClient();
   const { data: jobs = [] } = useQuery({ queryKey: ['crafting', runId], queryFn: () => craftingApi.getForRun(runId) });
+  const { data: inventory = [] } = useQuery({ queryKey: ['inventory', gameId], queryFn: () => inventoryApi.list({ gameId }) });
+
+  type InputForm = { invItemId: string; material: string; quantityRequired: string; costPerUnit: string };
+  const DEFAULT_INPUT: InputForm = { invItemId: '', material: '', quantityRequired: '', costPerUnit: '' };
 
   const [jobForm, setJobForm] = useState({ outputItem: '', outputQuantity: '', estimatedValue: '' });
-  const [inputForms, setInputForms] = useState<{ [jobId: number]: { material: string; quantityRequired: string; costPerUnit: string } }>({});
+  const [inputForms, setInputForms] = useState<Record<number, InputForm>>({});
   const [expandedJobs, setExpandedJobs] = useState<Record<number, boolean>>({});
+  const [pushOutput, setPushOutput] = useState<Record<number, boolean>>({});
 
-  const inv = () => qc.invalidateQueries({ queryKey: ['crafting', runId] });
-  const invAll = () => { inv(); qc.invalidateQueries({ queryKey: ['run', runId] }); };
+  const refreshCrafting = () => qc.invalidateQueries({ queryKey: ['crafting', runId] });
+  const invAll = () => {
+    refreshCrafting();
+    qc.invalidateQueries({ queryKey: ['run', runId] });
+    qc.invalidateQueries({ queryKey: ['inventory', gameId] });
+    qc.invalidateQueries({ queryKey: ['inventory'] });
+  };
 
-  const addJob = useMutation({ mutationFn: (d: unknown) => craftingApi.createJob(d), onSuccess: inv });
+  const addJob = useMutation({ mutationFn: (d: unknown) => craftingApi.createJob(d), onSuccess: refreshCrafting });
   const removeJob = useMutation({ mutationFn: (id: number) => craftingApi.removeJob(id), onSuccess: invAll });
   const completeJob = useMutation({
-    mutationFn: (id: number) => craftingApi.updateJob(id, { status: 'complete', completedAt: new Date().toISOString() }),
-    onSuccess: inv,
+    mutationFn: async ({ job, pushToInv }: { job: any; pushToInv: boolean }) => {
+      await craftingApi.updateJob(job.id, { status: 'complete', completedAt: new Date().toISOString() });
+      if (pushToInv && job.output_item && job.output_quantity) {
+        await inventoryApi.create({ gameId, item: job.output_item, quantity: Number(job.output_quantity) });
+      }
+    },
+    onSuccess: invAll,
   });
   const addInput = useMutation({
     mutationFn: ({ jobId, d }: { jobId: number; d: unknown }) => craftingApi.addInput(jobId, d),
-    onSuccess: inv,
+    onSuccess: refreshCrafting,
   });
-  const removeInput = useMutation({ mutationFn: (id: number) => craftingApi.removeInput(id), onSuccess: inv });
+  const removeInput = useMutation({ mutationFn: (id: number) => craftingApi.removeInput(id), onSuccess: refreshCrafting });
 
   const inProgress = (jobs as any[]).filter((j: any) => j.status === 'in_progress');
   const completed  = (jobs as any[]).filter((j: any) => j.status === 'complete');
+
+  // When user picks an inventory item, pre-fill material name + cost/unit
+  const handleInvSelect = (jobId: number, invId: string) => {
+    const item = (inventory as any[]).find((i: any) => String(i.id) === invId);
+    if (item) {
+      setInputForms(f => ({
+        ...f,
+        [jobId]: {
+          ...(f[jobId] ?? DEFAULT_INPUT),
+          invItemId: invId,
+          material: item.item,
+          costPerUnit: item.unit_cost != null ? String(item.unit_cost) : (f[jobId]?.costPerUnit ?? ''),
+        },
+      }));
+    } else {
+      setInputForms(f => ({ ...f, [jobId]: { ...(f[jobId] ?? DEFAULT_INPUT), invItemId: '' } }));
+    }
+  };
 
   return (
     <div className="space-y-4">
@@ -1099,10 +1313,11 @@ function CraftingPanel({ runId, currency }: { runId: number; currency: string })
         <div className="space-y-3">
           <h2 className="text-xs font-semibold text-slate-400 uppercase tracking-wider">In Progress</h2>
           {inProgress.map((job: any) => {
-            const inf = inputForms[job.id] || { material: '', quantityRequired: '', costPerUnit: '' };
+            const inf = inputForms[job.id] ?? DEFAULT_INPUT;
             const totalInputCost = (job.inputs || []).reduce((s: number, i: any) => s + (i.total_cost ?? 0), 0);
             const margin = job.estimated_value != null ? job.estimated_value - totalInputCost : null;
             const expanded = expandedJobs[job.id] ?? true;
+            const isPushingOutput = pushOutput[job.id] ?? false;
             return (
               <Card key={job.id}>
                 {/* Header */}
@@ -1117,9 +1332,18 @@ function CraftingPanel({ runId, currency }: { runId: number; currency: string })
                       <span className="ml-2 text-sm text-slate-400">× {job.output_quantity}</span>
                     </div>
                   </button>
-                  <div className="flex items-center gap-1.5 shrink-0">
+                  <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
                     <Badge label={job.status} />
-                    <Button size="sm" variant="secondary" onClick={() => completeJob.mutate(job.id)}>
+                    <label className="flex items-center gap-1 text-xs text-slate-400 cursor-pointer select-none" title="Add crafted item to inventory on complete">
+                      <input
+                        type="checkbox"
+                        className="w-3 h-3 accent-blue-500"
+                        checked={isPushingOutput}
+                        onChange={e => setPushOutput(f => ({ ...f, [job.id]: e.target.checked }))}
+                      />
+                      → inv
+                    </label>
+                    <Button size="sm" variant="secondary" onClick={() => completeJob.mutate({ job, pushToInv: isPushingOutput })}>
                       <CheckCircle size={12} /> Complete
                     </Button>
                     <Button variant="danger" size="sm" onClick={() => removeJob.mutate(job.id)}><Trash2 size={12} /></Button>
@@ -1138,11 +1362,11 @@ function CraftingPanel({ runId, currency }: { runId: number; currency: string })
                     {/* Inputs table */}
                     {(job.inputs || []).length > 0 && (
                       <Table>
-                        <thead><tr><Th>Material</Th><Th>Qty Req.</Th><Th>Cost/unit</Th><Th>Total</Th><Th /></tr></thead>
+                        <thead><tr><Th>Material</Th><Th>Qty</Th><Th>Cost/unit</Th><Th>Total</Th><Th /></tr></thead>
                         <tbody>
                           {(job.inputs as any[]).map((inp: any) => (
                             <Tr key={inp.id}>
-                              <Td>{inp.material}</Td>
+                              <Td className="text-slate-200">{inp.material}</Td>
                               <Td>{inp.quantity_required}</Td>
                               <Td className="text-slate-400">{inp.cost_per_unit != null ? fmtCurrency(inp.cost_per_unit, currency) : '—'}</Td>
                               <Td className="text-red-400">{inp.total_cost != null ? fmtCurrency(inp.total_cost, currency) : '—'}</Td>
@@ -1153,21 +1377,49 @@ function CraftingPanel({ runId, currency }: { runId: number; currency: string })
                       </Table>
                     )}
 
-                    {/* Add input */}
-                    <div className="flex gap-2 mt-2 flex-wrap">
-                      <input
-                        placeholder="Material"
-                        className="flex-1 min-w-[120px]"
-                        value={inf.material}
-                        onChange={ev => setInputForms(f => ({ ...f, [job.id]: { ...f[job.id], material: ev.target.value } }))}
-                      />
-                      <MathInput placeholder="Qty" className="w-20" value={inf.quantityRequired} onChange={ev => setInputForms(f => ({ ...f, [job.id]: { ...f[job.id], quantityRequired: ev.target.value } }))} />
-                      <MathInput placeholder="Cost/unit" className="w-24" value={inf.costPerUnit} onChange={ev => setInputForms(f => ({ ...f, [job.id]: { ...f[job.id], costPerUnit: ev.target.value } }))} />
-                      <Button size="sm" variant="secondary" onClick={() => {
-                        if (!inf.material || !inf.quantityRequired) return;
-                        addInput.mutate({ jobId: job.id, d: { material: inf.material, quantityRequired: Number(inf.quantityRequired), costPerUnit: inf.costPerUnit ? Number(inf.costPerUnit) : undefined } });
-                        setInputForms(f => ({ ...f, [job.id]: { material: '', quantityRequired: '', costPerUnit: '' } }));
-                      }}><Plus size={12} /> Add Input</Button>
+                    {/* Add input — inventory picker or free-text */}
+                    <div className="mt-2 pt-2 border-t border-slate-700/40 space-y-1.5">
+                      <p className="text-xs text-slate-500 font-medium">Add input material</p>
+                      <div className="flex gap-2 flex-wrap items-end">
+                        {(inventory as any[]).length > 0 && (
+                          <div className="min-w-[180px] flex-1">
+                            <p className="text-xs text-slate-600 mb-0.5">From inventory</p>
+                            <select
+                              className="text-xs w-full"
+                              value={inf.invItemId}
+                              onChange={e => handleInvSelect(job.id, e.target.value)}
+                            >
+                              <option value="">Pick item to pre-fill…</option>
+                              {(inventory as any[]).map((item: any) => (
+                                <option key={item.id} value={item.id}>
+                                  {item.item} — {item.quantity} avail{item.unit_cost != null ? ` · ${fmtCurrency(item.unit_cost, currency)}/ea` : ''}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+                        )}
+                        <div className="min-w-[120px] flex-1">
+                          <p className="text-xs text-slate-600 mb-0.5">Material</p>
+                          <input
+                            placeholder="Name"
+                            value={inf.material}
+                            onChange={e => setInputForms(f => ({ ...f, [job.id]: { ...(f[job.id] ?? DEFAULT_INPUT), material: e.target.value, invItemId: '' } }))}
+                          />
+                        </div>
+                        <div className="w-20">
+                          <p className="text-xs text-slate-600 mb-0.5">Qty</p>
+                          <MathInput placeholder="Qty" value={inf.quantityRequired} onChange={e => setInputForms(f => ({ ...f, [job.id]: { ...(f[job.id] ?? DEFAULT_INPUT), quantityRequired: e.target.value } }))} />
+                        </div>
+                        <div className="w-24">
+                          <p className="text-xs text-slate-600 mb-0.5">Cost/unit</p>
+                          <MathInput placeholder={currency} value={inf.costPerUnit} onChange={e => setInputForms(f => ({ ...f, [job.id]: { ...(f[job.id] ?? DEFAULT_INPUT), costPerUnit: e.target.value } }))} />
+                        </div>
+                        <Button size="sm" onClick={() => {
+                          if (!inf.material || !inf.quantityRequired) return;
+                          addInput.mutate({ jobId: job.id, d: { material: inf.material, quantityRequired: Number(inf.quantityRequired), costPerUnit: inf.costPerUnit ? Number(inf.costPerUnit) : undefined } });
+                          setInputForms(f => ({ ...f, [job.id]: DEFAULT_INPUT }));
+                        }}><Plus size={12} /> Add</Button>
+                      </div>
                     </div>
                   </>
                 )}
@@ -1213,9 +1465,14 @@ function ExpensesPanel({ runId, currency }: { runId: number; currency: string })
   const qc = useQueryClient();
   const { data: expenses = [] } = useQuery({ queryKey: ['expenses', runId], queryFn: () => expensesApi.list({ runId }) });
   const [form, setForm] = useState({ category: 'fuel', itemName: '', quantity: '', unitPrice: '', notes: '' });
+  const [editingExpense, setEditingExpense] = useState<Record<number, any>>({});
 
   const add = useMutation({
     mutationFn: (d: unknown) => expensesApi.create(d),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['expenses', runId] }); qc.invalidateQueries({ queryKey: ['run', runId] }); },
+  });
+  const editExp = useMutation({
+    mutationFn: ({ id, d }: { id: number; d: unknown }) => expensesApi.update(id, d),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['expenses', runId] }); qc.invalidateQueries({ queryKey: ['run', runId] }); },
   });
   const remove = useMutation({
@@ -1266,15 +1523,47 @@ function ExpensesPanel({ runId, currency }: { runId: number; currency: string })
         <Table>
           <thead><tr><Th>Category</Th><Th>Item</Th><Th>Amount</Th><Th>Date</Th><Th /></tr></thead>
           <tbody>
-            {(expenses as any[]).map((e: any) => (
-              <Tr key={e.id}>
-                <Td><Badge label={e.category} /></Td>
-                <Td className="text-slate-300">{e.item_name || '—'}</Td>
-                <Td className="text-red-400 font-semibold">{fmtCurrency(e.amount, currency)}</Td>
-                <Td className="text-slate-500 text-xs">{e.date}</Td>
-                <Td><Button variant="danger" size="sm" onClick={() => remove.mutate(e.id)}><Trash2 size={12} /></Button></Td>
-              </Tr>
-            ))}
+            {(expenses as any[]).map((e: any) => {
+              const ee = editingExpense[e.id];
+              return (
+                <Tr key={e.id}>
+                  {ee ? (
+                    <>
+                      <Td>
+                        <select className="text-xs" value={ee.category} onChange={ev => setEditingExpense(f => ({ ...f, [e.id]: { ...f[e.id], category: ev.target.value } }))}>
+                          {EXPENSE_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                        </select>
+                      </Td>
+                      <Td><input className="w-full" value={ee.item_name || ''} placeholder="Item name" onChange={ev => setEditingExpense(f => ({ ...f, [e.id]: { ...f[e.id], item_name: ev.target.value } }))} /></Td>
+                      <Td><MathInput className="w-28" value={String(ee.amount)} onChange={ev => setEditingExpense(f => ({ ...f, [e.id]: { ...f[e.id], amount: ev.target.value } }))} /></Td>
+                      <Td><input type="date" className="text-xs w-32" value={ee.date || ''} onChange={ev => setEditingExpense(f => ({ ...f, [e.id]: { ...f[e.id], date: ev.target.value } }))} /></Td>
+                      <Td>
+                        <div className="flex gap-1">
+                          <Button size="sm" onClick={() => {
+                            editExp.mutate({ id: e.id, d: { category: ee.category, itemName: ee.item_name || undefined, amount: Number(ee.amount), notes: ee.notes || undefined, date: ee.date || undefined } });
+                            setEditingExpense(f => { const n = { ...f }; delete n[e.id]; return n; });
+                          }}><CheckCircle size={12} /></Button>
+                          <Button size="sm" variant="secondary" onClick={() => setEditingExpense(f => { const n = { ...f }; delete n[e.id]; return n; })}>✕</Button>
+                        </div>
+                      </Td>
+                    </>
+                  ) : (
+                    <>
+                      <Td><Badge label={e.category} /></Td>
+                      <Td className="text-slate-300">{e.item_name || '—'}</Td>
+                      <Td className="text-red-400 font-semibold">{fmtCurrency(e.amount, currency)}</Td>
+                      <Td className="text-slate-500 text-xs">{e.date}</Td>
+                      <Td>
+                        <div className="flex gap-1">
+                          <Button size="sm" variant="secondary" onClick={() => setEditingExpense(f => ({ ...f, [e.id]: { ...e } }))}><Pencil size={11} /></Button>
+                          <Button variant="danger" size="sm" onClick={() => remove.mutate(e.id)}><Trash2 size={12} /></Button>
+                        </div>
+                      </Td>
+                    </>
+                  )}
+                </Tr>
+              );
+            })}
           </tbody>
         </Table>
       )}
@@ -2085,7 +2374,7 @@ export function RunDetail() {
         {tab === 'refining' && <RefiningPanel runId={runId} currency={currency} />}
         {tab === 'trading' && <TradingPanel runId={runId} currency={currency} />}
         {tab === 'hauling' && <HaulingPanel runId={runId} currency={currency} />}
-        {tab === 'crafting' && <CraftingPanel runId={runId} currency={currency} />}
+        {tab === 'crafting' && <CraftingPanel runId={runId} currency={currency} gameId={r.game_id} />}
         {tab === 'contracts' && <ContractsPanel runId={runId} currency={currency} gameId={r.game_id} playerCrewMemberId={playerCrewMemberId} />}
         {tab === 'expenses' && <ExpensesPanel runId={runId} currency={currency} />}
         {tab === 'crew' && <CrewPanel runId={runId} currency={currency} profit={r.profit} playerCrewMemberId={playerCrewMemberId} />}

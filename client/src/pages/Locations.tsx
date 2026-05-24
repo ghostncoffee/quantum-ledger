@@ -8,7 +8,7 @@ import { Table, Th, Td, Tr } from '@/components/ui/Table';
 import { fmtCurrency, fmt } from '@/lib/utils';
 import {
   MapPin, Package, Flame, Truck, TrendingUp, Activity,
-  ChevronDown, ChevronRight, ExternalLink,
+  ChevronDown, ChevronRight, ExternalLink, Pickaxe,
 } from 'lucide-react';
 
 // ─── Section toggle hook ──────────────────────────────────────────────────────
@@ -64,6 +64,7 @@ function LocationCard({ loc, currency }: { loc: any; currency: string }) {
   const totalAssets =
     loc.inventoryCount +
     loc.refiningJobsCount +
+    (loc.committedBagsCount || 0) +
     loc.haulingPickups.length +
     loc.haulingDeliveries.length +
     loc.tradingCargo.length;
@@ -85,6 +86,9 @@ function LocationCard({ loc, currency }: { loc: any; currency: string }) {
         <div className="flex flex-wrap justify-end gap-x-3 gap-y-1 max-w-[200px]">
           {loc.inventoryCount > 0 && (
             <Chip icon={Package} label={`${loc.inventoryCount} item${loc.inventoryCount !== 1 ? 's' : ''}`} color="text-emerald-400" />
+          )}
+          {(loc.committedBagsCount || 0) > 0 && (
+            <Chip icon={Pickaxe} label={`${loc.committedBagsCount} bag${loc.committedBagsCount !== 1 ? 's' : ''} · ${(loc.committedOreScu || 0).toFixed(1)} SCU`} color="text-orange-400" />
           )}
           {loc.refiningJobsCount > 0 && (
             <Chip icon={Flame} label={`${loc.refiningJobsCount} refining`} color="text-amber-400" />
@@ -130,6 +134,45 @@ function LocationCard({ loc, currency }: { loc: any; currency: string }) {
                 <Td className="text-emerald-400">
                   {i.unit_cost ? fmtCurrency(i.quantity * i.unit_cost, i.currency) : '—'}
                 </Td>
+              </Tr>
+            ))}
+          </tbody>
+        </Table>
+      </Section>
+
+      {/* ── Committed raw ore (mining bags checked in) ── */}
+      <Section
+        title={`Raw Ore at Station · ${loc.committedBagsCount} bag${loc.committedBagsCount !== 1 ? 's' : ''} · ${(loc.committedOreScu || 0).toFixed(2)} SCU ore`}
+        icon={Pickaxe}
+        iconColor="text-orange-400"
+        count={loc.committedBagsCount || 0}
+      >
+        <Table>
+          <thead>
+            <tr>
+              <Th>Bag</Th>
+              <Th>Ore SCU</Th>
+              <Th>Run</Th>
+              <Th>Checked in</Th>
+            </tr>
+          </thead>
+          <tbody>
+            {(loc.committedBags || []).map((b: any) => (
+              <Tr key={b.id}>
+                <Td className="font-medium text-slate-200">{b.label}</Td>
+                <Td className="text-orange-300">{(b.ore_scu || 0).toFixed(2)} SCU</Td>
+                <Td>
+                  {b.run_id && (
+                    <Link
+                      to={`/runs/${b.run_id}`}
+                      className="inline-flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300"
+                    >
+                      {b.run_title || `Run #${b.run_id}`}
+                      <ExternalLink size={10} />
+                    </Link>
+                  )}
+                </Td>
+                <Td className="text-slate-500 text-xs">{b.committed_at ? new Date(b.committed_at).toLocaleDateString() : '—'}</Td>
               </Tr>
             ))}
           </tbody>

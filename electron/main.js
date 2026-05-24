@@ -3,6 +3,7 @@
 const { app, BrowserWindow, shell, dialog } = require('electron');
 const path = require('path');
 const http = require('http');
+const fs = require('fs');
 
 // Single instance lock — focus existing window if user double-launches
 if (!app.requestSingleInstanceLock()) {
@@ -36,6 +37,23 @@ function waitForServer(maxAttempts = 40) {
   });
 }
 
+/** Returns true if something is already listening on the given url */
+function isReachable(url) {
+  return new Promise((resolve) => {
+    try {
+      const parsed = new URL(url);
+      const req = http.get(
+        { hostname: parsed.hostname, port: Number(parsed.port) || 80, path: parsed.pathname || '/', timeout: 800 },
+        () => resolve(true)
+      );
+      req.on('error', () => resolve(false));
+      req.on('timeout', () => { req.destroy(); resolve(false); });
+    } catch {
+      resolve(false);
+    }
+  });
+}
+
 app.whenReady().then(async () => {
   // Data lives in the OS user-data folder so it survives app updates
   const dataDir = path.join(app.getPath('userData'), 'data');
@@ -43,17 +61,38 @@ app.whenReady().then(async () => {
 
   const isPackaged = app.isPackaged;
 
-  // In production, static client files are in resources/client/
-  const clientDist = isPackaged
-    ? path.join(process.resourcesPath, 'client')
-    : null; // dev: Vite serves on 5173; leave null so Express doesn't serve statics
+  // ── Determine client source and load URL ─────────────────────────────────
+  let clientDist = null;
+  let loadUrl;
 
-  if (clientDist) process.env.CLIENT_DIST = clientDist;
+  if (isPackaged) {
+    // Production: Express serves the client from the resources folder
+    clientDist = path.join(process.resourcesPath, 'client');
+    process.env.CLIENT_DIST = clientDist;
+    loadUrl = `http://127.0.0.1:${PORT}`;
+  } else {
+    // Development: prefer Vite (hot-reload); fall back to built client/dist
+    const viteUrl = process.env.VITE_URL || 'http://127.0.0.1:5173';
+    const viteUp = await isReachable(viteUrl);
 
-  // Load and start the Express server using Electron's Node.js runtime
+    if (viteUp) {
+      // Vite dev server is running — use it (hot-reload works)
+      loadUrl = viteUrl;
+    } else {
+      // No Vite — serve the built React app directly from Express
+      const builtDist = path.join(__dirname, '..', 'client', 'dist');
+      if (fs.existsSync(path.join(builtDist, 'index.html'))) {
+        clientDist = builtDist;
+        process.env.CLIENT_DIST = clientDist;
+      }
+      loadUrl = `http://127.0.0.1:${PORT}`;
+    }
+  }
+
+  // ── Start the Express server ─────────────────────────────────────────────
   const serverEntry = isPackaged
-    ? path.join(__dirname, 'server-dist', 'index.js')   // inside app.asar / app/
-    : path.join(__dirname, '..', 'server', 'dist', 'index.js'); // dev: compiled JS
+    ? path.join(__dirname, 'server-dist', 'index.js')
+    : path.join(__dirname, '..', 'server', 'dist', 'index.js');
 
   try {
     const { startServer } = require(serverEntry);
@@ -88,12 +127,7 @@ app.whenReady().then(async () => {
     },
   });
 
-  // In dev, Vite runs the frontend. In prod, Express serves it.
-  const url = isPackaged
-    ? `http://127.0.0.1:${PORT}`
-    : (process.env.VITE_URL || `http://127.0.0.1:5173`);
-
-  mainWindow.loadURL(url);
+  mainWindow.loadURL(loadUrl);
 
   // Open links that explicitly target _blank in the system browser, not in-app
   mainWindow.webContents.setWindowOpenHandler(({ url: href }) => {

@@ -200,10 +200,38 @@ router.delete('/entries/:id', async (req, res) => {
 });
 
 // ─── Refining jobs ────────────────────────────────────────────────────────────
+
+// All refining jobs across all runs (must come before /:id routes)
+router.get('/refining/all', async (req, res) => {
+  try {
+    const { gameId } = req.query;
+    const gId = gameId ? Number(gameId) : null;
+
+    const jobs = await db.all(`
+      SELECT rj.*,
+        COALESCE(mb.label, me.raw_material, 'Standalone') as source_label,
+        COALESCE(mb.committed_location, me.location, rj.refinery_name) as station,
+        COALESCE(me.run_id, mb.run_id) as run_id,
+        r.title as run_title,
+        g.name as game_name, g.currency,
+        (SELECT COALESCE(SUM(s.total_revenue), 0) FROM sales s WHERE s.refining_job_id = rj.id) as sale_revenue
+      FROM refining_jobs rj
+      LEFT JOIN mining_entries me ON rj.mining_entry_id = me.id
+      LEFT JOIN mining_bags mb ON rj.bag_id = mb.id
+      LEFT JOIN runs r ON COALESCE(me.run_id, mb.run_id) = r.id
+      LEFT JOIN games g ON r.game_id = g.id
+      ${gId ? 'WHERE (r.game_id = ? OR (r.id IS NULL AND ? IS NOT NULL))' : ''}
+      ORDER BY rj.id DESC
+    `, gId ? [gId, gId] : []);
+
+    res.json(jobs);
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
 router.post('/refining', async (req, res) => {
   const { miningEntryId, bagId, refineryName, refineryMethod, inputQuantity, outputMaterial, costToRefine, startedAt } = req.body;
-  if (!inputQuantity || !outputMaterial || (!miningEntryId && !bagId)) {
-    return res.status(400).json({ error: 'inputQuantity, outputMaterial, and either miningEntryId or bagId required' });
+  if (!inputQuantity || !outputMaterial) {
+    return res.status(400).json({ error: 'inputQuantity and outputMaterial required' });
   }
   try {
     const result = await db.run(
@@ -228,20 +256,23 @@ router.post('/refining', async (req, res) => {
 });
 
 router.put('/refining/:id', async (req, res) => {
-  const { refineryName, refineryMethod, outputQuantity, efficiency, costToRefine, completedAt, status } = req.body;
+  const { refineryName, refineryMethod, outputMaterial, inputQuantity, outputQuantity, efficiency, costToRefine, completedAt, status } = req.body;
   try {
     await db.run(`
       UPDATE refining_jobs SET
-        refinery_name = COALESCE(?, refinery_name),
-        refinery_method = COALESCE(?, refinery_method),
-        output_quantity = COALESCE(?, output_quantity),
-        efficiency = COALESCE(?, efficiency),
-        cost_to_refine = COALESCE(?, cost_to_refine),
-        completed_at = COALESCE(?, completed_at),
-        status = COALESCE(?, status)
+        refinery_name    = COALESCE(?, refinery_name),
+        refinery_method  = COALESCE(?, refinery_method),
+        output_material  = COALESCE(?, output_material),
+        input_quantity   = COALESCE(?, input_quantity),
+        output_quantity  = COALESCE(?, output_quantity),
+        efficiency       = COALESCE(?, efficiency),
+        cost_to_refine   = COALESCE(?, cost_to_refine),
+        completed_at     = COALESCE(?, completed_at),
+        status           = COALESCE(?, status)
       WHERE id = ?
-    `, [refineryName ?? null, refineryMethod ?? null, outputQuantity ?? null, efficiency ?? null,
-        costToRefine ?? null, completedAt ?? null, status ?? null, req.params.id]);
+    `, [refineryName ?? null, refineryMethod ?? null, outputMaterial ?? null, inputQuantity ?? null,
+        outputQuantity ?? null, efficiency ?? null, costToRefine ?? null,
+        completedAt ?? null, status ?? null, req.params.id]);
 
     // When refining completes, add refined material to inventory
     if (status === 'done' && outputQuantity != null) {

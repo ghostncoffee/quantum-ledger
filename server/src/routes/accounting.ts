@@ -26,26 +26,72 @@ router.get('/', async (req, res) => {
 router.get('/summary', async (req, res) => {
   try {
     const { gameId } = req.query;
-    let gameFilter = '';
-    const args: unknown[] = [];
-    if (gameId) { gameFilter = 'AND le.game_id = ?'; args.push(gameId); }
+    const gId = gameId ? Number(gameId) : null;
 
-    const totals = await db.all(`
-      SELECT
-        g.id as game_id,
-        g.name as game_name,
-        g.currency,
-        COALESCE(SUM(CASE WHEN le.type = 'income' THEN le.amount ELSE 0 END), 0) as total_income,
-        COALESCE(SUM(CASE WHEN le.type = 'expense' THEN le.amount ELSE 0 END), 0) as total_expenses,
-        COALESCE(SUM(CASE WHEN le.type = 'investment' THEN le.amount ELSE 0 END), 0) as total_investment,
-        COALESCE(SUM(CASE WHEN le.type = 'crew_payout' THEN le.amount ELSE 0 END), 0) as total_crew_payouts,
-        COALESCE(SUM(CASE WHEN le.type = 'income' THEN le.amount ELSE -le.amount END), 0) as net
-      FROM games g
-      LEFT JOIN ledger_entries le ON le.game_id = g.id ${gameFilter}
-      GROUP BY g.id
-    `, args);
+    // Compute revenue and costs directly from operational tables — not ledger_entries (which is manual-only).
+    const games = await db.all(
+      `SELECT id as game_id, name as game_name, currency FROM games ${gId ? 'WHERE id = ?' : ''}`,
+      gId ? [gId] : []
+    );
 
-    res.json(totals);
+    const result = await Promise.all((games as any[]).map(async (g: any) => {
+      // Sales revenue (mining, trading)
+      const [salesRow] = await db.all(
+        `SELECT COALESCE(SUM(s.total_revenue), 0) as total
+         FROM sales s JOIN runs r ON s.run_id = r.id WHERE r.game_id = ?`,
+        [g.game_id]
+      );
+      // Hauling revenue (delivered jobs)
+      const [haulingRow] = await db.all(
+        `SELECT COALESCE(SUM(hj.agreed_payout + COALESCE(hj.bonus_payout, 0)), 0) as total
+         FROM hauling_jobs hj JOIN runs r ON hj.run_id = r.id
+         WHERE r.game_id = ? AND hj.status = 'delivered'`,
+        [g.game_id]
+      );
+      // Contract revenue (completed)
+      const [contractRow] = await db.all(
+        `SELECT COALESCE(SUM(
+           CASE WHEN c.is_shared = 1 AND c.shared_player_count > 0
+                THEN (c.agreed_payout + COALESCE(c.bonus_payout, 0)) / c.shared_player_count
+                ELSE c.agreed_payout + COALESCE(c.bonus_payout, 0)
+           END), 0) as total
+         FROM contracts c JOIN runs r ON c.run_id = r.id
+         WHERE r.game_id = ? AND c.status = 'complete'`,
+        [g.game_id]
+      );
+      // Expenses (linked to a run in this game, or directly tagged with game_id)
+      const [expRow] = await db.all(
+        `SELECT COALESCE(SUM(e.amount), 0) as total
+         FROM expenses e
+         LEFT JOIN runs r ON e.run_id = r.id
+         WHERE COALESCE(r.game_id, e.game_id) = ?`,
+        [g.game_id]
+      );
+      // Crew payouts (settled)
+      const [crewRow] = await db.all(
+        `SELECT COALESCE(SUM(rc.actual_payout), 0) as total
+         FROM run_crew rc JOIN runs r ON rc.run_id = r.id
+         WHERE r.game_id = ? AND rc.payout_settled = 1`,
+        [g.game_id]
+      );
+
+      const income = (salesRow?.total || 0) + (haulingRow?.total || 0) + (contractRow?.total || 0);
+      const exp = expRow?.total || 0;
+      const crewPay = crewRow?.total || 0;
+
+      return {
+        game_id: g.game_id,
+        game_name: g.game_name,
+        currency: g.currency,
+        total_income: income,
+        total_expenses: exp,
+        total_investment: 0,
+        total_crew_payouts: crewPay,
+        net: income - exp - crewPay,
+      };
+    }));
+
+    res.json(result);
   } catch (e: any) { res.status(500).json({ error: e.message }); }
 });
 
