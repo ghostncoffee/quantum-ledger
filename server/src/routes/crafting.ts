@@ -3,6 +3,35 @@ import { db } from '../db';
 
 const router = Router();
 
+// ─── Standalone: all crafting jobs (no run required) ─────────────────────────
+router.get('/jobs', async (req, res) => {
+  try {
+    const { gameId } = req.query;
+    const gId = gameId ? Number(gameId) : null;
+
+    const jobs = await db.all(`
+      SELECT cj.*,
+        (SELECT COALESCE(SUM(ci.total_cost), 0) FROM crafting_inputs ci WHERE ci.crafting_job_id = cj.id) as total_input_cost,
+        r.title as run_title,
+        COALESCE(r.game_id, cj.game_id) as resolved_game_id,
+        g.name as game_name, g.currency
+      FROM crafting_jobs cj
+      LEFT JOIN runs r ON cj.run_id = r.id
+      LEFT JOIN games g ON COALESCE(r.game_id, cj.game_id) = g.id
+      ${gId ? 'WHERE COALESCE(r.game_id, cj.game_id) = ?' : ''}
+      ORDER BY cj.id DESC
+    `, gId ? [gId] : []);
+
+    const result = await Promise.all((jobs as any[]).map(async (job: any) => {
+      const inputs = await db.all('SELECT * FROM crafting_inputs WHERE crafting_job_id = ?', [job.id]);
+      return { ...job, inputs };
+    }));
+
+    res.json(result);
+  } catch (e: any) { res.status(500).json({ error: e.message }); }
+});
+
+// ─── Run-scoped: jobs for a specific run ─────────────────────────────────────
 router.get('/run/:runId', async (req, res) => {
   try {
     const jobs = await db.all(`
@@ -21,14 +50,14 @@ router.get('/run/:runId', async (req, res) => {
 });
 
 router.post('/jobs', async (req, res) => {
-  const { runId, outputItem, outputQuantity, estimatedValue } = req.body;
-  if (!runId || !outputItem || outputQuantity == null) {
-    return res.status(400).json({ error: 'runId, outputItem, outputQuantity required' });
+  const { runId, gameId, outputItem, outputQuantity, estimatedValue } = req.body;
+  if (!outputItem || outputQuantity == null || (!runId && !gameId)) {
+    return res.status(400).json({ error: 'outputItem, outputQuantity, and either runId or gameId required' });
   }
   try {
     const result = await db.run(
-      'INSERT INTO crafting_jobs (run_id, output_item, output_quantity, estimated_value) VALUES (?, ?, ?, ?)',
-      [runId, outputItem, outputQuantity, estimatedValue ?? null]
+      'INSERT INTO crafting_jobs (run_id, game_id, output_item, output_quantity, estimated_value) VALUES (?, ?, ?, ?, ?)',
+      [runId ?? null, gameId ?? null, outputItem, outputQuantity, estimatedValue ?? null]
     );
     res.status(201).json({ id: result.lastInsertRowid });
   } catch (e: any) { res.status(500).json({ error: e.message }); }

@@ -1,6 +1,7 @@
+﻿import { MathInput } from '@/components/ui/MathInput';
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { inventoryApi, gamesApi } from '@/lib/api';
+import { inventoryApi, gamesApi, miningApi } from '@/lib/api';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
@@ -33,11 +34,11 @@ function AdjustModal({ item, open, onClose, currency }: { item: any; open: boole
         </div>
         <div>
           <label className="text-xs text-slate-400 mb-1 block">Quantity * (current: {item?.quantity})</label>
-          <input type="number" value={form.quantity} onChange={e => setForm(f => ({ ...f, quantity: e.target.value }))} required />
+          <MathInput value={form.quantity} onChange={e => setForm(f => ({ ...f, quantity: e.target.value }))} required />
         </div>
         <div>
           <label className="text-xs text-slate-400 mb-1 block">Unit cost (optional)</label>
-          <input type="number" value={form.unitCost} onChange={e => setForm(f => ({ ...f, unitCost: e.target.value }))} placeholder={currency} />
+          <MathInput value={form.unitCost} onChange={e => setForm(f => ({ ...f, unitCost: e.target.value }))} placeholder={currency} />
         </div>
         <div>
           <label className="text-xs text-slate-400 mb-1 block">Reason</label>
@@ -142,6 +143,10 @@ export function Inventory() {
 
   const { data: inventory = [] } = useQuery({ queryKey: ['inventory', gameFilter], queryFn: () => inventoryApi.list(gameFilter ? { gameId: gameFilter } : undefined) });
   const { data: games = [] } = useQuery({ queryKey: ['games'], queryFn: gamesApi.list });
+  const { data: committedBags = [] } = useQuery({
+    queryKey: ['committed-ore', gameFilter],
+    queryFn: () => miningApi.getCommitted(gameFilter ? Number(gameFilter) : undefined),
+  });
 
   const add = useMutation({
     mutationFn: (d: unknown) => inventoryApi.create(d),
@@ -181,8 +186,8 @@ export function Inventory() {
             {(games as any[]).map((g: any) => <option key={g.id} value={g.id}>{g.name}</option>)}
           </select>
           <input placeholder="Item name" value={newForm.item} onChange={e => setNewForm(f => ({ ...f, item: e.target.value }))} />
-          <input type="number" placeholder="Qty" value={newForm.quantity} onChange={e => setNewForm(f => ({ ...f, quantity: e.target.value }))} />
-          <input type="number" placeholder="Unit cost" value={newForm.unitCost} onChange={e => setNewForm(f => ({ ...f, unitCost: e.target.value }))} />
+          <MathInput placeholder="Qty" value={newForm.quantity} onChange={e => setNewForm(f => ({ ...f, quantity: e.target.value }))} />
+          <MathInput placeholder="Unit cost" value={newForm.unitCost} onChange={e => setNewForm(f => ({ ...f, unitCost: e.target.value }))} />
           <input placeholder="Location" value={newForm.location} onChange={e => setNewForm(f => ({ ...f, location: e.target.value }))} />
         </div>
         <Button className="mt-2" size="sm" onClick={() => {
@@ -229,6 +234,83 @@ export function Inventory() {
       {sellItem && (
         <SellModal item={sellItem} open={!!sellItem} onClose={() => setSellItem(null)} currency={getCurrency(sellItem)} />
       )}
+
+      {/* ── Committed raw ore at stations ── */}
+      {(committedBags as any[]).length > 0 && (
+        <div>
+          <div className="flex items-center gap-2 mb-2">
+            <h2 className="text-sm font-semibold text-slate-400 uppercase tracking-wider">Raw Ore at Stations</h2>
+            <span className="text-xs text-slate-600">checked-in mining bags awaiting refinery</span>
+          </div>
+          <div className="space-y-3">
+            {/* Group by location */}
+            {Object.entries(
+              (committedBags as any[]).reduce((acc: Record<string, any[]>, bag: any) => {
+                const loc = bag.committed_location || 'Unknown';
+                if (!acc[loc]) acc[loc] = [];
+                acc[loc].push(bag);
+                return acc;
+              }, {})
+            ).map(([location, bags]) => (
+              <Card key={location}>
+                <CardHeader>
+                  <CardTitle className="text-slate-300">{location}</CardTitle>
+                  <span className="text-xs text-slate-500">{bags.length} bag{bags.length !== 1 ? 's' : ''}</span>
+                </CardHeader>
+                <div className="space-y-2">
+                  {bags.map((bag: any) => {
+                    const lines: any[] = (bag.lines || []).filter((l: any) => !l.is_inert);
+                    const inertLines: any[] = (bag.lines || []).filter((l: any) => l.is_inert);
+                    const totalScu = lines.reduce((s: number, l: any) => s + (Number(l.scu) || 0), 0);
+                    return (
+                      <div key={bag.id} className="bg-slate-800/40 rounded-lg px-3 py-2">
+                        <div className="flex items-center justify-between mb-1.5">
+                          <span className="text-sm font-medium text-slate-200">{bag.label}</span>
+                          <div className="flex items-center gap-2 text-xs text-slate-500">
+                            {bag.run_title && <span>{bag.run_title}</span>}
+                            <span className="text-slate-400 font-medium">{totalScu.toFixed(2)} SCU ore</span>
+                          </div>
+                        </div>
+                        {lines.length > 0 ? (
+                          <div className="flex flex-wrap gap-1.5">
+                            {lines.map((line: any) => {
+                              const q = line.quality;
+                              const qColor = q == null ? 'text-slate-500'
+                                : q >= 700 ? 'text-emerald-400'
+                                : q >= 400 ? 'text-amber-400'
+                                : 'text-slate-400';
+                              return (
+                                <span
+                                  key={line.id}
+                                  className="inline-flex items-center gap-1 text-xs bg-slate-700/60 px-2 py-1 rounded"
+                                >
+                                  <span className="text-slate-200">{line.material}</span>
+                                  <span className="text-slate-400">{line.scu} SCU</span>
+                                  {q != null && <span className={qColor}>Q{q}</span>}
+                                </span>
+                              );
+                            })}
+                            {inertLines.length > 0 && (
+                              <span className="inline-flex items-center gap-1 text-xs bg-slate-800 px-2 py-1 rounded text-slate-500">
+                                +{inertLines.length} inert material{inertLines.length !== 1 ? 's' : ''}
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <p className="text-xs text-slate-600">No ore lines recorded</p>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </Card>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+
+
+

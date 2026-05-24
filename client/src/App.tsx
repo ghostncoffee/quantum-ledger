@@ -11,6 +11,7 @@ import { Contracts } from './pages/Contracts';
 import { Accounting } from './pages/Accounting';
 import { Inventory } from './pages/Inventory';
 import { Crew } from './pages/Crew';
+import { CrewDetail } from './pages/CrewDetail';
 import { Vehicles } from './pages/Vehicles';
 import { Locations } from './pages/Locations';
 import { Settings } from './pages/Settings';
@@ -38,6 +39,7 @@ export default function App() {
             <Route path="inventory" element={<Inventory />} />
             <Route path="locations" element={<Locations />} />
             <Route path="crew" element={<Crew />} />
+            <Route path="crew/:id" element={<CrewDetail />} />
             <Route path="vehicles" element={<Vehicles />} />
             <Route path="settings" element={<Settings />} />
           </Route>

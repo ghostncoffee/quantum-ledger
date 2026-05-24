@@ -1,11 +1,12 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { crewApi, gamesApi } from '@/lib/api';
 import { Card, CardHeader, CardTitle } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Modal } from '@/components/ui/Modal';
 import { Table, Th, Td, Tr } from '@/components/ui/Table';
-import { Plus, Trash2, Users } from 'lucide-react';
+import { Plus, Trash2, Users, Star } from 'lucide-react';
 
 function NewCrewModal({ open, onClose, games }: { open: boolean; onClose: () => void; games: any[] }) {
   const qc = useQueryClient();
@@ -60,6 +61,21 @@ export function Crew() {
     mutationFn: (id: number) => crewApi.remove(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['crew'] }),
   });
+  const setPlayer = useMutation({
+    mutationFn: (id: number) => crewApi.setAsPlayer(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['crew'] }),
+  });
+  const unsetPlayer = useMutation({
+    mutationFn: (id: number) => crewApi.unsetAsPlayer(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['crew'] }),
+  });
+
+  // Sort: player first, then alphabetical
+  const sorted = [...(crew as any[])].sort((a, b) => {
+    if (a.is_player && !b.is_player) return -1;
+    if (!a.is_player && b.is_player) return 1;
+    return a.name.localeCompare(b.name);
+  });
 
   return (
     <div className="space-y-4">
@@ -75,22 +91,53 @@ export function Crew() {
         <Table>
           <thead><tr><Th>Name</Th><Th>Handle</Th><Th>Game</Th><Th>Notes</Th><Th /></tr></thead>
           <tbody>
-            {(crew as any[]).length === 0 ? (
+            {sorted.length === 0 ? (
               <Tr><Td colSpan={5} className="text-center text-slate-500">No crew members yet.</Td></Tr>
             ) : (
-              (crew as any[]).map((m: any) => (
-                <Tr key={m.id}>
-                  <Td className="font-medium text-slate-200">{m.name}</Td>
+              sorted.map((m: any) => (
+                <Tr key={m.id} className={m.is_player ? 'bg-amber-900/10' : ''}>
+                  <Td className="font-medium text-slate-200">
+                    <span className="flex items-center gap-2">
+                      <Link to={`/crew/${m.id}`} className="hover:text-blue-300 transition-colors">
+                        {m.name}
+                      </Link>
+                      {m.is_player ? (
+                        <span className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 font-medium">
+                          <Star size={10} className="fill-amber-400" /> YOU
+                        </span>
+                      ) : null}
+                    </span>
+                  </Td>
                   <Td className="text-slate-500">{m.game_handle || '—'}</Td>
                   <Td className="text-slate-400">{m.game_name || '—'}</Td>
                   <Td className="text-slate-500 text-xs">{m.notes || '—'}</Td>
-                  <Td><Button variant="danger" size="sm" onClick={() => remove.mutate(m.id)}><Trash2 size={12} /></Button></Td>
+                  <Td>
+                    <div className="flex gap-1 justify-end">
+                      <button
+                        title={m.is_player ? 'Remove "me" flag' : 'Mark as me'}
+                        onClick={() => m.is_player ? unsetPlayer.mutate(m.id) : setPlayer.mutate(m.id)}
+                        className={`p-1.5 rounded transition-colors ${m.is_player
+                          ? 'text-amber-400 hover:text-amber-300'
+                          : 'text-slate-600 hover:text-amber-400'
+                        }`}
+                      >
+                        <Star size={14} className={m.is_player ? 'fill-amber-400' : ''} />
+                      </button>
+                      <Button variant="danger" size="sm" onClick={() => remove.mutate(m.id)}><Trash2 size={12} /></Button>
+                    </div>
+                  </Td>
                 </Tr>
               ))
             )}
           </tbody>
         </Table>
       </Card>
+
+      {!(crew as any[]).some((m: any) => m.is_player) && (crew as any[]).length > 0 && (
+        <p className="text-xs text-slate-500 flex items-center gap-1">
+          <Star size={11} /> Click the star next to your character to enable personal earnings tracking.
+        </p>
+      )}
 
       <NewCrewModal open={newOpen} onClose={() => setNewOpen(false)} games={games as any[]} />
     </div>

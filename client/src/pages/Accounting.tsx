@@ -1,3 +1,4 @@
+﻿import { MathInput } from '@/components/ui/MathInput';
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { accountingApi, gamesApi } from '@/lib/api';
@@ -53,7 +54,7 @@ function NewEntryModal({ open, onClose, games }: { open: boolean; onClose: () =>
           </div>
           <div>
             <label className="text-xs text-slate-400 mb-1 block">Amount *</label>
-            <input type="number" placeholder="Amount" value={form.amount} onChange={e => set('amount', e.target.value)} required />
+            <MathInput placeholder="Amount" value={form.amount} onChange={e => set('amount', e.target.value)} required />
           </div>
         </div>
         <div>
@@ -179,3 +180,6 @@ export function Accounting() {
     </div>
   );
 }
+
+
+

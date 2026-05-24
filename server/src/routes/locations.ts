@@ -32,18 +32,40 @@ router.get('/', async (req, res) => {
       gId ? [gId] : []
     );
 
-    // ── Refinery jobs (not done) ──────────────────────────────────────────────
+    // ── Refinery jobs (not done) — covers both entry-linked and bag-linked ──────
     const refiningJobs = await db.all(
-      `SELECT rj.*, me.raw_material, me.run_id, r.game_id, r.title as run_title,
-              g.currency
+      `SELECT rj.*,
+              COALESCE(me.raw_material, mb.label) as raw_material,
+              COALESCE(me.run_id, mb.run_id) as run_id,
+              COALESCE(r1.game_id, r2.game_id) as game_id,
+              COALESCE(r1.title, r2.title) as run_title,
+              COALESCE(g1.currency, g2.currency) as currency
        FROM refining_jobs rj
-       JOIN mining_entries me ON rj.mining_entry_id = me.id
-       JOIN runs r ON me.run_id = r.id
-       JOIN games g ON r.game_id = g.id
+       LEFT JOIN mining_entries me ON rj.mining_entry_id = me.id
+       LEFT JOIN runs r1 ON me.run_id = r1.id
+       LEFT JOIN games g1 ON r1.game_id = g1.id
+       LEFT JOIN mining_bags mb ON rj.bag_id = mb.id
+       LEFT JOIN runs r2 ON mb.run_id = r2.id
+       LEFT JOIN games g2 ON r2.game_id = g2.id
        WHERE rj.status != 'done'
          AND rj.refinery_name IS NOT NULL AND rj.refinery_name != ''
-         ${gId ? 'AND r.game_id = ?' : ''}
+         ${gId ? 'AND COALESCE(r1.game_id, r2.game_id) = ?' : ''}
        ORDER BY rj.refinery_name, rj.id`,
+      gId ? [gId] : []
+    );
+
+    // ── Committed bags (raw ore checked in at a station) ──────────────────────
+    const committedBags = await db.all(
+      `SELECT mb.*, r.game_id, r.title as run_title, g.currency,
+              (SELECT COUNT(*) FROM mining_ore_lines mol WHERE mol.bag_id = mb.id) as line_count,
+              (SELECT COALESCE(SUM(mol.scu), 0) FROM mining_ore_lines mol WHERE mol.bag_id = mb.id AND mol.is_inert = 0) as ore_scu
+       FROM mining_bags mb
+       JOIN runs r ON mb.run_id = r.id
+       JOIN games g ON r.game_id = g.id
+       WHERE mb.committed = 1
+         AND mb.committed_location IS NOT NULL AND mb.committed_location != ''
+         ${gId ? 'AND r.game_id = ?' : ''}
+       ORDER BY mb.committed_location, mb.id`,
       gId ? [gId] : []
     );
 
@@ -94,6 +116,7 @@ router.get('/', async (req, res) => {
     });
     (tradingEntries as any[]).forEach((t: any) => locationSet.add(t.buy_location));
     (activeRuns as any[]).forEach((r: any) => locationSet.add(r.location));
+    (committedBags as any[]).forEach((b: any) => locationSet.add(b.committed_location));
 
     // ── Build per-location summary ────────────────────────────────────────────
     const locations = Array.from(locationSet)
@@ -109,6 +132,7 @@ router.get('/', async (req, res) => {
         );
         const locTrading = (tradingEntries as any[]).filter((t: any) => t.buy_location === name);
         const locRuns = (activeRuns as any[]).filter((r: any) => r.location === name);
+        const locBags = (committedBags as any[]).filter((b: any) => b.committed_location === name);
 
         const inventoryQty = locInventory.reduce((s: number, i: any) => s + i.quantity, 0);
         const inventoryValue = locInventory.reduce(
@@ -135,6 +159,9 @@ router.get('/', async (req, res) => {
           haulingDeliveries: locHaulingDelivery,
           tradingCargo: locTrading,
           activeRuns: locRuns,
+          committedBags: locBags,
+          committedBagsCount: locBags.length,
+          committedOreScu: locBags.reduce((s: number, b: any) => s + (b.ore_scu || 0), 0),
         };
       });
 

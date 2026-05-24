@@ -23,6 +23,9 @@ export const crewApi = {
   create: (d: unknown) => post('/crew', d),
   update: (id: number, d: unknown) => put(`/crew/${id}`, d),
   remove: (id: number) => del(`/crew/${id}`),
+  setAsPlayer: (id: number) => post(`/crew/${id}/player`),
+  unsetAsPlayer: (id: number) => del(`/crew/${id}/player`),
+  getHistory: (id: number) => get(`/crew/${id}/history`),
 };
 
 // Vehicles
@@ -50,12 +53,24 @@ export const runsApi = {
 // Mining
 export const miningApi = {
   getPipeline: (runId: number) => get(`/mining/run/${runId}`),
-  addEntry: (d: unknown) => post('/mining/entries', d),
-  updateEntry: (id: number, d: unknown) => put(`/mining/entries/${id}`, d),
-  removeEntry: (id: number) => del(`/mining/entries/${id}`),
+  getCommitted: (gameId?: number) => get('/mining/committed', gameId ? { gameId } : undefined),
+  // Bags
+  addBag: (d: unknown) => post('/mining/bags', d),
+  updateBag: (id: number, d: unknown) => put(`/mining/bags/${id}`, d),
+  removeBag: (id: number) => del(`/mining/bags/${id}`),
+  commitBag: (id: number, d: { location?: string }) => post(`/mining/bags/${id}/commit`, d),
+  uncommitBag: (id: number) => del(`/mining/bags/${id}/commit`),
+  // Ore lines
+  addOreLine: (bagId: number, d: unknown) => post(`/mining/bags/${bagId}/lines`, d),
+  removeOreLine: (id: number) => del(`/mining/lines/${id}`),
+  // Refining
   addRefining: (d: unknown) => post('/mining/refining', d),
   updateRefining: (id: number, d: unknown) => put(`/mining/refining/${id}`, d),
   removeRefining: (id: number) => del(`/mining/refining/${id}`),
+  // Legacy entries
+  addEntry: (d: unknown) => post('/mining/entries', d),
+  updateEntry: (id: number, d: unknown) => put(`/mining/entries/${id}`, d),
+  removeEntry: (id: number) => del(`/mining/entries/${id}`),
 };
 
 // Trading
@@ -76,6 +91,7 @@ export const salesApi = {
 
 // Crafting
 export const craftingApi = {
+  list: (params?: Record<string, unknown>) => get('/crafting/jobs', params),
   getForRun: (runId: number) => get(`/crafting/run/${runId}`),
   createJob: (d: unknown) => post('/crafting/jobs', d),
   updateJob: (id: number, d: unknown) => put(`/crafting/jobs/${id}`, d),
@@ -97,10 +113,15 @@ export const haulingApi = {
 export const contractsApi = {
   list: (params?: Record<string, unknown>) => get('/contracts', params),
   getForRun: (runId: number) => get(`/contracts/run/${runId}`),
+  getClients: (gameId?: number) => get('/contracts/clients', gameId ? { gameId } : undefined),
   create: (d: unknown) => post('/contracts', d),
   update: (id: number, d: unknown) => put(`/contracts/${id}`, d),
   complete: (id: number, d?: unknown) => post(`/contracts/${id}/complete`, d),
   remove: (id: number) => del(`/contracts/${id}`),
+  getCrew: (id: number) => get(`/contracts/${id}/crew`),
+  addCrew: (id: number, d: unknown) => post(`/contracts/${id}/crew`, d),
+  updateCrew: (contractId: number, rowId: number, d: unknown) => put(`/contracts/${contractId}/crew/${rowId}`, d),
+  removeCrew: (contractId: number, rowId: number) => del(`/contracts/${contractId}/crew/${rowId}`),
 };
 
 // Expenses

@@ -1,3 +1,4 @@
+﻿import { MathInput } from '@/components/ui/MathInput';
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
@@ -123,7 +124,7 @@ function NewRunModal({ open, onClose }: { open: boolean; onClose: () => void }) 
                 <option value="fixed">Fixed</option>
               </select>
               <div className="flex gap-1">
-                <input type="number" placeholder={c.payoutType === 'percentage' ? '25' : '50000'} value={c.payoutValue} onChange={e => updateCrew(i, 'payoutValue', e.target.value)} />
+                <MathInput placeholder={c.payoutType === 'percentage' ? '25' : '50000'} value={c.payoutValue} onChange={e => updateCrew(i, 'payoutValue', e.target.value)} />
                 <Button type="button" variant="danger" size="sm" onClick={() => removeCrew(i)}>×</Button>
               </div>
             </div>
@@ -257,3 +258,6 @@ export function Runs() {
     </div>
   );
 }
+
+
+

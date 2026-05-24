@@ -109,9 +109,29 @@ CREATE TABLE IF NOT EXISTS mining_entries (
   notes TEXT
 );
 
+CREATE TABLE IF NOT EXISTS mining_bags (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  run_id INTEGER NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+  label TEXT NOT NULL DEFAULT 'Bag 1',
+  capacity_scu REAL,
+  notes TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS mining_ore_lines (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  bag_id INTEGER NOT NULL REFERENCES mining_bags(id) ON DELETE CASCADE,
+  run_id INTEGER NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
+  material TEXT NOT NULL,
+  scu REAL NOT NULL,
+  quality INTEGER,
+  is_inert INTEGER NOT NULL DEFAULT 0
+);
+
 CREATE TABLE IF NOT EXISTS refining_jobs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
-  mining_entry_id INTEGER NOT NULL REFERENCES mining_entries(id) ON DELETE CASCADE,
+  mining_entry_id INTEGER REFERENCES mining_entries(id) ON DELETE CASCADE,
+  bag_id INTEGER REFERENCES mining_bags(id) ON DELETE CASCADE,
   refinery_name TEXT,
   refinery_method TEXT,
   input_quantity REAL NOT NULL,
@@ -182,6 +202,17 @@ CREATE TABLE IF NOT EXISTS contracts (
   completed_at TEXT
 );
 
+CREATE TABLE IF NOT EXISTS contract_crew (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  contract_id INTEGER NOT NULL REFERENCES contracts(id) ON DELETE CASCADE,
+  crew_member_id INTEGER NOT NULL REFERENCES crew_members(id),
+  role TEXT,
+  payout_type TEXT NOT NULL DEFAULT 'percentage',
+  payout_value REAL NOT NULL DEFAULT 0,
+  payout_settled INTEGER NOT NULL DEFAULT 0,
+  actual_payout REAL
+);
+
 CREATE TABLE IF NOT EXISTS hauling_jobs (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   run_id INTEGER NOT NULL REFERENCES runs(id) ON DELETE CASCADE,
@@ -239,9 +270,69 @@ export async function initDb() {
     'ALTER TABLE contracts ADD COLUMN scu_amount REAL',
     'ALTER TABLE contracts ADD COLUMN pickup_location TEXT',
     'ALTER TABLE contracts ADD COLUMN delivery_location TEXT',
+    'ALTER TABLE crew_members ADD COLUMN is_player INTEGER NOT NULL DEFAULT 0',
+    'ALTER TABLE contracts ADD COLUMN is_shared INTEGER NOT NULL DEFAULT 0',
+    'ALTER TABLE contracts ADD COLUMN shared_player_count INTEGER',
+    'ALTER TABLE mining_bags ADD COLUMN committed INTEGER NOT NULL DEFAULT 0',
+    'ALTER TABLE mining_bags ADD COLUMN committed_location TEXT',
+    'ALTER TABLE mining_bags ADD COLUMN committed_at TEXT',
   ];
   for (const sql of migrations) {
     try { await db.run(sql); } catch { /* column already exists */ }
+  }
+
+  // Migrate refining_jobs: make mining_entry_id nullable and add bag_id column
+  // (existing DBs have the old NOT NULL constraint — recreate table to lift it)
+  const rjCols = await db.all('PRAGMA table_info(refining_jobs)');
+  const hasBagId = (rjCols as any[]).some((c: any) => c.name === 'bag_id');
+  if (!hasBagId) {
+    await db.run(`CREATE TABLE IF NOT EXISTS refining_jobs_new (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      mining_entry_id INTEGER REFERENCES mining_entries(id) ON DELETE CASCADE,
+      bag_id INTEGER REFERENCES mining_bags(id) ON DELETE CASCADE,
+      refinery_name TEXT,
+      refinery_method TEXT,
+      input_quantity REAL NOT NULL,
+      output_material TEXT NOT NULL,
+      output_quantity REAL,
+      efficiency REAL,
+      cost_to_refine REAL DEFAULT 0,
+      started_at TEXT,
+      completed_at TEXT,
+      status TEXT NOT NULL DEFAULT 'pending'
+    )`);
+    await db.run(`INSERT INTO refining_jobs_new
+      (id, mining_entry_id, refinery_name, refinery_method, input_quantity,
+       output_material, output_quantity, efficiency, cost_to_refine,
+       started_at, completed_at, status)
+      SELECT id, mining_entry_id, refinery_name, refinery_method, input_quantity,
+             output_material, output_quantity, efficiency, cost_to_refine,
+             started_at, completed_at, status
+      FROM refining_jobs`);
+    await db.run('DROP TABLE refining_jobs');
+    await db.run('ALTER TABLE refining_jobs_new RENAME TO refining_jobs');
+  }
+
+  // Migrate crafting_jobs: make run_id nullable, add game_id for standalone jobs
+  const cjCols = await db.all('PRAGMA table_info(crafting_jobs)');
+  const cjHasGameId = (cjCols as any[]).some((c: any) => c.name === 'game_id');
+  if (!cjHasGameId) {
+    await db.run(`CREATE TABLE IF NOT EXISTS crafting_jobs_new (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      run_id INTEGER REFERENCES runs(id) ON DELETE CASCADE,
+      game_id INTEGER REFERENCES games(id),
+      output_item TEXT NOT NULL,
+      output_quantity REAL NOT NULL,
+      estimated_value REAL,
+      status TEXT NOT NULL DEFAULT 'in_progress',
+      completed_at TEXT
+    )`);
+    await db.run(`INSERT INTO crafting_jobs_new
+      (id, run_id, output_item, output_quantity, estimated_value, status, completed_at)
+      SELECT id, run_id, output_item, output_quantity, estimated_value, status, completed_at
+      FROM crafting_jobs`);
+    await db.run('DROP TABLE crafting_jobs');
+    await db.run('ALTER TABLE crafting_jobs_new RENAME TO crafting_jobs');
   }
 
   // Seed default games if empty
