@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { routeError } from '../lib/routeError';
 import { db } from '../db';
 import { inventoryOut } from '../lib/inventory';
 
@@ -8,7 +9,7 @@ router.get('/run/:runId', async (req, res) => {
   try {
     const rows = await db.all('SELECT * FROM sales WHERE run_id = ? ORDER BY sold_at DESC', [req.params.runId]);
     res.json(rows);
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.post('/', async (req, res) => {
@@ -43,7 +44,7 @@ router.post('/', async (req, res) => {
     }
 
     res.status(201).json({ id: result.lastInsertRowid, totalRevenue });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.put('/:id', async (req, res) => {
@@ -61,14 +62,14 @@ router.put('/:id', async (req, res) => {
       WHERE id = ?
     `, [commodity ?? null, quantitySold ?? null, pricePerUnit ?? null, totalRevenue, location ?? null, soldAt ?? null, req.params.id]);
     res.json({ ok: true });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.delete('/:id', async (req, res) => {
   try {
     await db.run('DELETE FROM sales WHERE id = ?', [req.params.id]);
     res.json({ ok: true });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 export default router;

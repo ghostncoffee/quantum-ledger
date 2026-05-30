@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { routeError } from '../lib/routeError';
 import { db } from '../db';
 import { inventoryIn } from '../lib/inventory';
 
@@ -73,7 +74,7 @@ router.get('/run/:runId', async (req, res) => {
       refiningJobs,
       sales: [...linkedSales, ...directSales],
     });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 // ─── Bags ─────────────────────────────────────────────────────────────────────
@@ -86,7 +87,7 @@ router.post('/bags', async (req, res) => {
       [runId, label, capacityScu ?? null, notes ?? null]
     );
     res.status(201).json({ id: result.lastInsertRowid });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.put('/bags/:id', async (req, res) => {
@@ -101,14 +102,14 @@ router.put('/bags/:id', async (req, res) => {
       [label ?? null, capacityScu ?? null, notes ?? null, req.params.id]
     );
     res.json({ ok: true });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.delete('/bags/:id', async (req, res) => {
   try {
     await db.run('DELETE FROM mining_bags WHERE id = ?', [req.params.id]);
     res.json({ ok: true });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 // Commit a bag to a location (check-in at station / refinery)
@@ -120,7 +121,7 @@ router.post('/bags/:id/commit', async (req, res) => {
       [location ?? null, new Date().toISOString(), req.params.id]
     );
     res.json({ ok: true });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 // Uncommit — bag goes back to "in the field"
@@ -131,7 +132,7 @@ router.delete('/bags/:id/commit', async (req, res) => {
       [req.params.id]
     );
     res.json({ ok: true });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 // ─── Ore lines ────────────────────────────────────────────────────────────────
@@ -147,14 +148,14 @@ router.post('/bags/:bagId/lines', async (req, res) => {
       [bagId, runId, material, scu, quality ?? null, isInert ? 1 : 0]
     );
     res.status(201).json({ id: result.lastInsertRowid });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.delete('/lines/:id', async (req, res) => {
   try {
     await db.run('DELETE FROM mining_ore_lines WHERE id = ?', [req.params.id]);
     res.json({ ok: true });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 // ─── Legacy entries ───────────────────────────────────────────────────────────
@@ -173,7 +174,7 @@ router.post('/entries', async (req, res) => {
       await inventoryIn(run.game_id, rawMaterial, quantityRaw, runId, null, `Mined: ${rawMaterial}`);
     }
     res.status(201).json({ id: result.lastInsertRowid });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.put('/entries/:id', async (req, res) => {
@@ -189,14 +190,14 @@ router.put('/entries/:id', async (req, res) => {
       [rawMaterial ?? null, quantityRaw ?? null, location ?? null, notes ?? null, req.params.id]
     );
     res.json({ ok: true });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.delete('/entries/:id', async (req, res) => {
   try {
     await db.run('DELETE FROM mining_entries WHERE id = ?', [req.params.id]);
     res.json({ ok: true });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 // ─── Refinery sessions (grouped jobs: one timer + cost, N material lines) ────
@@ -228,7 +229,7 @@ router.get('/refining/sessions', async (req, res) => {
       lines: bySession[s.id] || [],
       sale_revenue: (bySession[s.id] || []).reduce((sum: number, l: any) => sum + (l.sale_revenue || 0), 0),
     })));
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.post('/refining/sessions', async (req, res) => {
@@ -284,7 +285,7 @@ router.post('/refining/sessions', async (req, res) => {
     }
 
     res.status(201).json({ id: sessionId });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.put('/refining/sessions/:id', async (req, res) => {
@@ -336,7 +337,7 @@ router.put('/refining/sessions/:id', async (req, res) => {
     }
 
     res.json({ ok: true });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.delete('/refining/sessions/:id', async (req, res) => {
@@ -345,7 +346,7 @@ router.delete('/refining/sessions/:id', async (req, res) => {
     await db.run('UPDATE refining_jobs SET session_id = NULL WHERE session_id = ?', [req.params.id]);
     await db.run('DELETE FROM refinery_sessions WHERE id = ?', [req.params.id]);
     res.json({ ok: true });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 // Update individual line's actual output when completing a session
@@ -362,7 +363,7 @@ router.put('/refining/sessions/:sid/lines/:lid', async (req, res) => {
     `, [outputQuantity ?? null, outputMaterial ?? null, efficiency ?? null,
         req.params.lid, req.params.sid]);
     res.json({ ok: true });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 // ─── Refining jobs (legacy individual, and shared helpers) ────────────────────
@@ -391,7 +392,7 @@ router.get('/refining/all', async (req, res) => {
     `, gId ? [gId, gId] : []);
 
     res.json(jobs);
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.post('/refining', async (req, res) => {
@@ -419,7 +420,7 @@ router.post('/refining', async (req, res) => {
       ]
     );
     res.status(201).json({ id: result.lastInsertRowid });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.put('/refining/:id', async (req, res) => {
@@ -473,14 +474,14 @@ router.put('/refining/:id', async (req, res) => {
     }
 
     res.json({ ok: true });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.delete('/refining/:id', async (req, res) => {
   try {
     await db.run('DELETE FROM refining_jobs WHERE id = ?', [req.params.id]);
     res.json({ ok: true });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 // ─── Committed bags for inventory view ────────────────────────────────────────
@@ -508,7 +509,7 @@ router.get('/committed', async (req, res) => {
     }));
 
     res.json(result);
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 export default router;

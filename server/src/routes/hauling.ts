@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { routeError } from '../lib/routeError';
 import { db } from '../db';
 
 const router = Router();
@@ -48,7 +49,7 @@ router.get('/run/:runId', async (req, res) => {
     }
 
     res.json((jobs as any[]).map((j: any) => ({ ...j, legs: byJob[j.id] || [] })));
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.post('/', async (req, res) => {
@@ -86,7 +87,7 @@ router.post('/', async (req, res) => {
     }
 
     res.status(201).json({ id: jobId });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.put('/:id', async (req, res) => {
@@ -111,14 +112,14 @@ router.put('/:id', async (req, res) => {
         agreedPayout ?? null, bonusPayout ?? null, notes ?? null, status ?? null,
         completedAt, req.params.id]);
     res.json({ ok: true });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.delete('/:id', async (req, res) => {
   try {
     await db.run('DELETE FROM hauling_jobs WHERE id = ?', [req.params.id]);
     res.json({ ok: true });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 // ─── Legs ─────────────────────────────────────────────────────────────────────
@@ -133,7 +134,7 @@ router.post('/jobs/:jobId/legs', async (req, res) => {
        pickupLocation ?? null, dropoffLocation ?? null]
     );
     res.status(201).json({ id: result.lastInsertRowid });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.put('/legs/:id', async (req, res) => {
@@ -158,14 +159,14 @@ router.put('/legs/:id', async (req, res) => {
     if (leg) await syncJobStatus(leg.job_id);
 
     res.json({ ok: true });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.delete('/legs/:id', async (req, res) => {
   try {
     await db.run('DELETE FROM hauling_legs WHERE id = ?', [req.params.id]);
     res.json({ ok: true });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 export default router;

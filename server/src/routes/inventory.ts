@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { routeError } from '../lib/routeError';
 import { db } from '../db';
 
 const router = Router();
@@ -11,7 +12,7 @@ router.get('/', async (req, res) => {
     if (gameId) { q += ' AND i.game_id = ?'; args.push(gameId); }
     q += ' ORDER BY i.item';
     res.json(await db.all(q, args));
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.post('/', async (req, res) => {
@@ -32,7 +33,7 @@ router.post('/', async (req, res) => {
       [gameId, item, quantity, unitCost ?? null, location ?? null]
     );
     res.status(201).json({ id: result.lastInsertRowid });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.post('/:id/adjust', async (req, res) => {
@@ -50,7 +51,7 @@ router.post('/:id/adjust', async (req, res) => {
       [req.params.id, runId ?? null, type, quantity, unitCost ?? null, reason ?? null]
     );
     res.json({ ok: true });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 /** Player-to-player sale: reduces inventory and records income in the ledger */
@@ -97,7 +98,7 @@ router.post('/:id/sell', async (req, res) => {
     );
 
     res.status(201).json({ id: saleResult.lastInsertRowid, totalRevenue });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.get('/:id/transactions', async (req, res) => {
@@ -107,7 +108,7 @@ router.get('/:id/transactions', async (req, res) => {
       [req.params.id]
     );
     res.json(rows);
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.put('/:id', async (req, res) => {
@@ -122,14 +123,14 @@ router.put('/:id', async (req, res) => {
       WHERE id = ?
     `, [item ?? null, unitCost ?? null, location ?? null, req.params.id]);
     res.json({ ok: true });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.delete('/:id', async (req, res) => {
   try {
     await db.run('DELETE FROM inventory WHERE id = ?', [req.params.id]);
     res.json({ ok: true });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 export default router;

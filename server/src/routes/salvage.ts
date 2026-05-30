@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { routeError } from '../lib/routeError';
 import { db } from '../db';
 import { inventoryIn } from '../lib/inventory';
 
@@ -16,7 +17,7 @@ router.get('/run/:runId', async (req, res) => {
       lines: await db.all('SELECT * FROM salvage_lines WHERE haul_id = ? ORDER BY id', [h.id]),
     })));
     res.json(result);
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 // ─── All hauls (standalone Salvaging page) ────────────────────────────────────
@@ -37,7 +38,7 @@ router.get('/hauls', async (req, res) => {
       lines: await db.all('SELECT * FROM salvage_lines WHERE haul_id = ? ORDER BY id', [h.id]),
     })));
     res.json(result);
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 // ─── Hauls CRUD ───────────────────────────────────────────────────────────────
@@ -50,7 +51,7 @@ router.post('/hauls', async (req, res) => {
       [runId, label, notes ?? null],
     );
     res.status(201).json({ id: r.lastInsertRowid });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.put('/hauls/:id', async (req, res) => {
@@ -61,14 +62,14 @@ router.put('/hauls/:id', async (req, res) => {
       [label ?? null, notes ?? null, req.params.id],
     );
     res.json({ ok: true });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.delete('/hauls/:id', async (req, res) => {
   try {
     await db.run('DELETE FROM salvage_hauls WHERE id = ?', [req.params.id]);
     res.json({ ok: true });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 // ─── Commit: check-in haul → auto-stock inventory ─────────────────────────────
@@ -106,7 +107,7 @@ router.post('/hauls/:id/commit', async (req, res) => {
       [location ?? null, new Date().toISOString(), req.params.id],
     );
     res.json({ ok: true });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 // Uncommit — does NOT reverse inventory (user manages that manually)
@@ -119,7 +120,7 @@ router.delete('/hauls/:id/commit', async (req, res) => {
       [req.params.id],
     );
     res.json({ ok: true });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 // ─── Salvage lines ────────────────────────────────────────────────────────────
@@ -134,7 +135,7 @@ router.post('/hauls/:haulId/lines', async (req, res) => {
       [req.params.haulId, runId, material, quantityScu],
     );
     res.status(201).json({ id: r.lastInsertRowid });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.put('/lines/:id', async (req, res) => {
@@ -148,14 +149,14 @@ router.put('/lines/:id', async (req, res) => {
       [material ?? null, quantityScu ?? null, req.params.id],
     );
     res.json({ ok: true });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.delete('/lines/:id', async (req, res) => {
   try {
     await db.run('DELETE FROM salvage_lines WHERE id = ?', [req.params.id]);
     res.json({ ok: true });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 export default router;

@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { routeError } from '../lib/routeError';
 import { db } from '../db';
 
 const router = Router();
@@ -18,13 +19,13 @@ router.get('/clients', async (req, res) => {
     q += ' ORDER BY c.client_name';
     const rows = await db.all(q, args);
     res.json(rows.map((r: any) => r.client_name));
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.get('/run/:runId', async (req, res) => {
   try {
     res.json(await db.all('SELECT * FROM contracts WHERE run_id = ? ORDER BY id', [req.params.runId]));
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.get('/', async (req, res) => {
@@ -43,7 +44,7 @@ router.get('/', async (req, res) => {
     if (type) { q += ' AND c.type = ?'; args.push(type); }
     q += ' ORDER BY c.id DESC';
     res.json(await db.all(q, args));
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.post('/', async (req, res) => {
@@ -76,7 +77,7 @@ router.post('/', async (req, res) => {
     }
 
     res.status(201).json({ id: contractId });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.put('/:id', async (req, res) => {
@@ -106,7 +107,7 @@ router.put('/:id', async (req, res) => {
         isShared != null ? (isShared ? 1 : 0) : null, sharedPlayerCount ?? null,
         req.params.id]);
     res.json({ ok: true });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.post('/:id/complete', async (req, res) => {
@@ -117,14 +118,14 @@ router.post('/:id/complete', async (req, res) => {
       [bonusPayout ?? null, req.params.id]
     );
     res.json({ ok: true });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.delete('/:id', async (req, res) => {
   try {
     await db.run('DELETE FROM contracts WHERE id = ?', [req.params.id]);
     res.json({ ok: true });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 // ── Per-contract crew ──────────────────────────────────────────────────────────
@@ -138,7 +139,7 @@ router.get('/:id/crew', async (req, res) => {
       WHERE cc.contract_id = ?
     `, [req.params.id]);
     res.json(rows);
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.post('/:id/crew', async (req, res) => {
@@ -150,7 +151,7 @@ router.post('/:id/crew', async (req, res) => {
       [req.params.id, crewMemberId, role ?? null, payoutType, payoutValue]
     );
     res.status(201).json({ id: result.lastInsertRowid });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.put('/:id/crew/:rowId', async (req, res) => {
@@ -167,14 +168,14 @@ router.put('/:id/crew/:rowId', async (req, res) => {
     `, [role ?? null, payoutType ?? null, payoutValue ?? null, payoutSettled ?? null, actualPayout ?? null,
         req.params.rowId, req.params.id]);
     res.json({ ok: true });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.delete('/:id/crew/:rowId', async (req, res) => {
   try {
     await db.run('DELETE FROM contract_crew WHERE id = ? AND contract_id = ?', [req.params.rowId, req.params.id]);
     res.json({ ok: true });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 export default router;

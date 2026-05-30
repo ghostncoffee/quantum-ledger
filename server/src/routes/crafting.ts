@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { routeError } from '../lib/routeError';
 import { db } from '../db';
 
 const router = Router();
@@ -28,7 +29,7 @@ router.get('/jobs', async (req, res) => {
     }));
 
     res.json(result);
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 // ─── Run-scoped: jobs for a specific run ─────────────────────────────────────
@@ -46,7 +47,7 @@ router.get('/run/:runId', async (req, res) => {
     }));
 
     res.json(result);
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.post('/jobs', async (req, res) => {
@@ -60,7 +61,7 @@ router.post('/jobs', async (req, res) => {
       [runId ?? null, gameId ?? null, outputItem, outputQuantity, estimatedValue ?? null]
     );
     res.status(201).json({ id: result.lastInsertRowid });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.put('/jobs/:id', async (req, res) => {
@@ -76,14 +77,14 @@ router.put('/jobs/:id', async (req, res) => {
       WHERE id = ?
     `, [outputItem ?? null, outputQuantity ?? null, estimatedValue ?? null, status ?? null, completedAt ?? null, req.params.id]);
     res.json({ ok: true });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.delete('/jobs/:id', async (req, res) => {
   try {
     await db.run('DELETE FROM crafting_jobs WHERE id = ?', [req.params.id]);
     res.json({ ok: true });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.post('/jobs/:jobId/inputs', async (req, res) => {
@@ -98,7 +99,7 @@ router.post('/jobs/:jobId/inputs', async (req, res) => {
       [req.params.jobId, material, quantityRequired, costPerUnit ?? null, totalCost]
     );
     res.status(201).json({ id: result.lastInsertRowid });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.put('/inputs/:id', async (req, res) => {
@@ -115,14 +116,14 @@ router.put('/inputs/:id', async (req, res) => {
       WHERE id = ?
     `, [material ?? null, quantityRequired ?? null, quantityUsed ?? null, costPerUnit ?? null, totalCost, req.params.id]);
     res.json({ ok: true });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.delete('/inputs/:id', async (req, res) => {
   try {
     await db.run('DELETE FROM crafting_inputs WHERE id = ?', [req.params.id]);
     res.json({ ok: true });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 export default router;

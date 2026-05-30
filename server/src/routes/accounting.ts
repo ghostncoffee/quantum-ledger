@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { routeError } from '../lib/routeError';
 import { db } from '../db';
 
 const router = Router();
@@ -20,7 +21,7 @@ router.get('/', async (req, res) => {
     if (runId) { q += ' AND le.run_id = ?'; args.push(runId); }
     q += ' ORDER BY le.date DESC, le.created_at DESC';
     res.json(await db.all(q, args));
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.get('/summary', async (req, res) => {
@@ -92,7 +93,7 @@ router.get('/summary', async (req, res) => {
     }));
 
     res.json(result);
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.get('/breakdown', async (req, res) => {
@@ -108,7 +109,7 @@ router.get('/breakdown', async (req, res) => {
       ORDER BY total DESC
     `, args);
     res.json(rows);
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.get('/runs', async (req, res) => {
@@ -153,7 +154,7 @@ router.get('/runs', async (req, res) => {
     }));
 
     res.json(result);
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.post('/', async (req, res) => {
@@ -167,7 +168,7 @@ router.post('/', async (req, res) => {
       [gameId, runId ?? null, type, category, amount, description, date ?? new Date().toISOString().split('T')[0]]
     );
     res.status(201).json({ id: result.lastInsertRowid });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.put('/:id', async (req, res) => {
@@ -183,14 +184,14 @@ router.put('/:id', async (req, res) => {
       WHERE id = ?
     `, [type ?? null, category ?? null, amount ?? null, description ?? null, date ?? null, req.params.id]);
     res.json({ ok: true });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.delete('/:id', async (req, res) => {
   try {
     await db.run('DELETE FROM ledger_entries WHERE id = ?', [req.params.id]);
     res.json({ ok: true });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 export default router;

@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { routeError } from '../lib/routeError';
 import { db } from '../db';
 
 const router = Router();
@@ -18,7 +19,7 @@ router.get('/', async (req, res) => {
     if (category) { q += ' AND e.category = ?'; args.push(category); }
     q += ' ORDER BY e.date DESC, e.id DESC';
     res.json(await db.all(q, args));
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.post('/', async (req, res) => {
@@ -30,7 +31,7 @@ router.post('/', async (req, res) => {
       [runId ?? null, gameId ?? null, category, itemName ?? null, amount, notes ?? null, date ?? new Date().toISOString().split('T')[0]]
     );
     res.status(201).json({ id: result.lastInsertRowid });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.put('/:id', async (req, res) => {
@@ -46,14 +47,14 @@ router.put('/:id', async (req, res) => {
       WHERE id = ?
     `, [category ?? null, itemName ?? null, amount ?? null, notes ?? null, date ?? null, req.params.id]);
     res.json({ ok: true });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.delete('/:id', async (req, res) => {
   try {
     await db.run('DELETE FROM expenses WHERE id = ?', [req.params.id]);
     res.json({ ok: true });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 export default router;

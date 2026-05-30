@@ -29,10 +29,19 @@ Head to [**Releases**](https://github.com/Axiomancer/star-citizen-ledger/release
 
 | File | Description |
 |---|---|
-| `Star Citizen Ledger-x.x.x-Setup-x64.exe` | Windows installer — adds Start Menu shortcut + Desktop icon |
-| `Star Citizen Ledger-x.x.x-Portable-x64.exe` | Single executable, no installation needed |
+| `Star Citizen Ledger-1.0.0-Setup-x64.exe` | Windows installer — adds Start Menu shortcut + Desktop icon |
+| `Star Citizen Ledger-1.0.0-Portable-x64.exe` | Single executable, no installation needed |
 
-> Your data lives in `%APPDATA%\star-citizen-ledger\data\` and is preserved across app updates.
+> Your data lives in `%APPDATA%\star-citizen-ledger\data\` on your machine and is preserved across app updates. Nothing is stored inside the executable.
+
+### Virus scan results (v1.0.0)
+
+Both files have been scanned and are clean. Windows Defender and other tools may flag unsigned Electron apps as "unknown publisher" — this is expected for indie apps without a code-signing certificate and is not a virus.
+
+| File | VirusTotal |
+|---|---|
+| `Star Citizen Ledger-1.0.0-Setup-x64.exe` | [View scan results](https://www.virustotal.com/gui/file-analysis/OTMwNDE5OWM5MDRmZTdjOTg2NWM5NDU5OTliMTIxNDk6MTc4MDE3Njc0Nw==) |
+| `Star Citizen Ledger-1.0.0-Portable-x64.exe` | [View scan results](https://www.virustotal.com/gui/file-analysis/ZTU4OGY3NTRiMjQ3MWJlYTJiNTBhOGNlMDMyNDQxMjQ6MTc4MDE3NjcxOQ==) |
 
 ---
 
@@ -41,24 +50,23 @@ Head to [**Releases**](https://github.com/Axiomancer/star-citizen-ledger/release
 ### Prerequisites
 
 - [Node.js](https://nodejs.org/) 20+
-- [pnpm](https://pnpm.io/) — `npm install -g pnpm`
 
 ### Install
 
 ```bash
-pnpm install
-cd client && pnpm install && cd ..
-cd server && pnpm install && cd ..
+npm install
+cd client && npm install && cd ..
+cd server && npm install && cd ..
 ```
 
 ### Run in development
 
 ```bash
-# Terminal 1 — API server (hot-reloads via tsx)
-pnpm run dev:server
+# Terminal 1 — API server
+npm run dev:server
 
 # Terminal 2 — Vite dev client
-pnpm run dev:client
+npm run dev:client
 
 # Terminal 3 — Electron shell (connects to Vite automatically)
 cd electron && npm install && npm start
@@ -67,7 +75,7 @@ cd electron && npm install && npm start
 ### Build the installer
 
 ```bash
-pnpm run package
+npm run package
 ```
 
 Output lands in `release/`. The pipeline:

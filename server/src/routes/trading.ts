@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { routeError } from '../lib/routeError';
 import { db } from '../db';
 import { inventoryIn, inventoryOut } from '../lib/inventory';
 
@@ -15,7 +16,7 @@ router.get('/run/:runId', async (req, res) => {
       ORDER BY te.id
     `, [req.params.runId]);
     res.json(entries);
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.post('/', async (req, res) => {
@@ -49,7 +50,7 @@ router.post('/', async (req, res) => {
     }
 
     res.status(201).json({ id: result.lastInsertRowid });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.put('/:id', async (req, res) => {
@@ -80,7 +81,7 @@ router.put('/:id', async (req, res) => {
         buyPricePerUnit ?? null, totalCost, buyLocation ?? null, sellLocation ?? null,
         status ?? null, req.params.id]);
     res.json({ ok: true });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.delete('/:id', async (req, res) => {
@@ -97,7 +98,7 @@ router.delete('/:id', async (req, res) => {
     }
     await db.run('DELETE FROM trading_entries WHERE id = ?', [req.params.id]);
     res.json({ ok: true });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 export default router;

@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { routeError } from '../lib/routeError';
 import { db } from '../db';
 
 const router = Router();
@@ -12,7 +13,7 @@ router.get('/', async (req, res) => {
     if (type) { q += ' AND v.type = ?'; args.push(type); }
     q += ' ORDER BY v.name';
     res.json(await db.all(q, args));
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.post('/', async (req, res) => {
@@ -24,7 +25,7 @@ router.post('/', async (req, res) => {
       [name, type, gameId ?? null, notes ?? null]
     );
     res.status(201).json({ id: result.lastInsertRowid });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.put('/:id', async (req, res) => {
@@ -35,14 +36,14 @@ router.put('/:id', async (req, res) => {
       [name ?? null, type ?? null, gameId ?? null, notes ?? null, req.params.id]
     );
     res.json({ ok: true });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.delete('/:id', async (req, res) => {
   try {
     await db.run('DELETE FROM vehicles WHERE id = ?', [req.params.id]);
     res.json({ ok: true });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 export default router;

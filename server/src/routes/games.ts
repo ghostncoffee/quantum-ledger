@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { routeError } from '../lib/routeError';
 import { db } from '../db';
 
 const router = Router();
@@ -7,7 +8,7 @@ router.get('/', async (_req, res) => {
   try {
     const rows = await db.all('SELECT * FROM games ORDER BY name');
     res.json(rows);
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.post('/', async (req, res) => {
@@ -16,7 +17,7 @@ router.post('/', async (req, res) => {
   try {
     const result = await db.run('INSERT INTO games (name, currency) VALUES (?, ?)', [name, currency]);
     res.status(201).json({ id: result.lastInsertRowid });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.put('/:id', async (req, res) => {
@@ -24,14 +25,14 @@ router.put('/:id', async (req, res) => {
   try {
     await db.run('UPDATE games SET name = COALESCE(?, name), currency = COALESCE(?, currency) WHERE id = ?', [name ?? null, currency ?? null, req.params.id]);
     res.json({ ok: true });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.delete('/:id', async (req, res) => {
   try {
     await db.run('DELETE FROM games WHERE id = ?', [req.params.id]);
     res.json({ ok: true });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 export default router;

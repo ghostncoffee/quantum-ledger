@@ -45,6 +45,12 @@ export async function startServer(port?: number, clientDist?: string): Promise<v
 
   app.get('/api/health', (_req, res) => res.json({ ok: true }));
 
+  // Global error handler — never leak internal details to the client
+  app.use((err: any, _req: any, res: any, _next: any) => {
+    console.error('[server error]', err);
+    res.status(500).json({ error: 'Internal server error' });
+  });
+
   // Serve the built React app in production (when clientDist is provided)
   const staticDir = clientDist ?? process.env.CLIENT_DIST;
   if (staticDir && fs.existsSync(staticDir)) {

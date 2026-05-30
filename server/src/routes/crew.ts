@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { routeError } from '../lib/routeError';
 import { db } from '../db';
 
 const router = Router();
@@ -10,7 +11,7 @@ router.get('/', async (req, res) => {
       ? await db.all('SELECT * FROM crew_members WHERE game_id = ? ORDER BY name', [gameId])
       : await db.all('SELECT cm.*, g.name as game_name FROM crew_members cm LEFT JOIN games g ON cm.game_id = g.id ORDER BY cm.name');
     res.json(rows);
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.get('/:id', async (req, res) => {
@@ -18,7 +19,7 @@ router.get('/:id', async (req, res) => {
     const row = await db.get('SELECT * FROM crew_members WHERE id = ?', [req.params.id]);
     if (!row) return res.status(404).json({ error: 'not found' });
     res.json(row);
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.post('/', async (req, res) => {
@@ -30,7 +31,7 @@ router.post('/', async (req, res) => {
       [name, gameHandle ?? null, gameId ?? null, notes ?? null]
     );
     res.status(201).json({ id: result.lastInsertRowid });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.put('/:id', async (req, res) => {
@@ -41,14 +42,14 @@ router.put('/:id', async (req, res) => {
       [name ?? null, gameHandle ?? null, gameId ?? null, notes ?? null, req.params.id]
     );
     res.json({ ok: true });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.delete('/:id', async (req, res) => {
   try {
     await db.run('DELETE FROM crew_members WHERE id = ?', [req.params.id]);
     res.json({ ok: true });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 // Full history for a crew member: run entries + contract entries + summary
@@ -132,7 +133,7 @@ router.get('/:id/history', async (req, res) => {
         contractsCount: contractCrew.length,
       },
     });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 // Set a crew member as the player character (clears any previously set player)
@@ -141,7 +142,7 @@ router.post('/:id/player', async (req, res) => {
     await db.run('UPDATE crew_members SET is_player = 0');
     await db.run('UPDATE crew_members SET is_player = 1 WHERE id = ?', [req.params.id]);
     res.json({ ok: true });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 // Unset player flag
@@ -149,7 +150,7 @@ router.delete('/:id/player', async (req, res) => {
   try {
     await db.run('UPDATE crew_members SET is_player = 0 WHERE id = ?', [req.params.id]);
     res.json({ ok: true });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 export default router;

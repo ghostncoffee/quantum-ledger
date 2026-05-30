@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { routeError } from '../lib/routeError';
 import { db } from '../db';
 
 const router = Router();
@@ -41,7 +42,7 @@ router.get('/', async (req, res) => {
     if (status) { q += ' AND r.status = ?'; args.push(status); }
     q += ' ORDER BY r.created_at DESC';
     res.json(await db.all(q, args));
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.get('/:id', async (req, res) => {
@@ -88,7 +89,7 @@ router.get('/:id', async (req, res) => {
     }
 
     res.json({ ...run, crew, expenses, sales, haulingJobs, contracts, revenue, costs, profit, durationHours });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.post('/', async (req, res) => {
@@ -109,7 +110,7 @@ router.post('/', async (req, res) => {
     }
 
     res.status(201).json({ id: runId });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.put('/:id', async (req, res) => {
@@ -127,7 +128,7 @@ router.put('/:id', async (req, res) => {
       WHERE id = ?
     `, [vehicleId ?? null, status ?? null, title ?? null, location ?? null, startedAt ?? null, endedAt ?? null, notes ?? null, req.params.id]);
     res.json({ ok: true });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.post('/:id/complete', async (req, res) => {
@@ -135,14 +136,14 @@ router.post('/:id/complete', async (req, res) => {
     const now = new Date().toISOString();
     await db.run("UPDATE runs SET status = 'completed', ended_at = COALESCE(ended_at, ?) WHERE id = ?", [now, req.params.id]);
     res.json({ ok: true });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.delete('/:id', async (req, res) => {
   try {
     await db.run('DELETE FROM runs WHERE id = ?', [req.params.id]);
     res.json({ ok: true });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.get('/:id/crew', async (req, res) => {
@@ -154,7 +155,7 @@ router.get('/:id/crew', async (req, res) => {
       WHERE rc.run_id = ?
     `, [req.params.id]);
     res.json(rows);
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.post('/:id/crew', async (req, res) => {
@@ -166,7 +167,7 @@ router.post('/:id/crew', async (req, res) => {
       [req.params.id, crewMemberId, role ?? null, payoutType, payoutValue]
     );
     res.status(201).json({ id: result.lastInsertRowid });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.put('/:id/crew/:crewId', async (req, res) => {
@@ -182,14 +183,14 @@ router.put('/:id/crew/:crewId', async (req, res) => {
       WHERE id = ? AND run_id = ?
     `, [role ?? null, payoutType ?? null, payoutValue ?? null, payoutSettled ?? null, actualPayout ?? null, req.params.crewId, req.params.id]);
     res.json({ ok: true });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 router.delete('/:id/crew/:crewId', async (req, res) => {
   try {
     await db.run('DELETE FROM run_crew WHERE id = ? AND run_id = ?', [req.params.crewId, req.params.id]);
     res.json({ ok: true });
-  } catch (e: any) { res.status(500).json({ error: e.message }); }
+  } catch (e: unknown) { routeError(res, e); }
 });
 
 export default router;
