@@ -3,14 +3,14 @@
   "private": true,
   "version": "1.0.0",
   "scripts": {
-    "dev:server": "node server/node_modules/tsx/dist/cli.mjs server/src/index.ts",
-    "dev:client": "node client/node_modules/vite/bin/vite.js",
-    "build:server": "pnpm --filter game-ledger-server build",
-    "build:client": "pnpm --filter client build",
+    "dev:server": "cd server && npm run dev",
+    "dev:client": "cd client && npm run dev",
+    "build:server": "cd server && npm run build",
+    "build:client": "cd client && npm run build",
     "icons": "node scripts/generate-icons.js",
-    "build": "pnpm run build:server && pnpm run build:client",
-    "package": "pnpm run icons && pnpm run build && node scripts/prepare-electron.js && cd electron && npm install && npm run dist",
-    "package:dir": "pnpm run icons && pnpm run build && node scripts/prepare-electron.js && cd electron && npm install && npm run dist:dir"
+    "build": "npm run build:server && npm run build:client",
+    "package": "npm run icons && npm run build && node scripts/prepare-electron.js && cd electron && npm install && npm run dist",
+    "package:dir": "npm run icons && npm run build && node scripts/prepare-electron.js && cd electron && npm install && npm run dist:dir"
   },
   "devDependencies": {
     "sharp": "^0.34.5"

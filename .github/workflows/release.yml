@@ -3,95 +3,188 @@ name: Release
 on:
   push:
     tags:
-      - 'v*'          # triggers on v0.1.0, v1.2.3, etc.
+      - 'v*'   # triggers on v1.0.0, v1.2.3, etc.
 
 permissions:
-  contents: write     # needed to create GitHub releases
+  contents: write
 
 jobs:
+  # ── Windows: NSIS installer + portable .exe ───────────────────────────────
   build-windows:
-    name: Build Windows installer
+    name: Windows
     runs-on: windows-latest
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: '22'
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 9
-          run_install: false
+      - name: Install root deps (sharp for icon generation)
+        run: npm install
 
-      - name: Get pnpm store path
-        id: pnpm-cache
-        shell: powershell
-        run: echo "STORE_PATH=$(pnpm store path --silent)" >> $env:GITHUB_OUTPUT
+      - name: Install client deps
+        working-directory: client
+        run: npm install
 
-      - name: Cache pnpm store
-        uses: actions/cache@v4
-        with:
-          path: ${{ steps.pnpm-cache.outputs.STORE_PATH }}
-          key: pnpm-${{ runner.os }}-${{ hashFiles('**/pnpm-lock.yaml') }}
-          restore-keys: pnpm-${{ runner.os }}-
+      - name: Install server deps
+        working-directory: server
+        run: npm install
 
-      # ── Install workspace deps (server + client) ──────────────────────────
-      - name: Install workspace dependencies
-        run: pnpm install --frozen-lockfile
+      - name: Generate icons
+        run: npm run icons
 
-      # ── Build TypeScript server ───────────────────────────────────────────
       - name: Build server
-        run: pnpm run build:server
+        run: npm run build:server
 
-      # ── Build React client ────────────────────────────────────────────────
       - name: Build client
-        run: pnpm run build:client
+        run: npm run build:client
 
-      # ── Copy server/dist → electron/server-dist ───────────────────────────
-      - name: Prepare electron package
+      - name: Prepare electron bundle
         run: node scripts/prepare-electron.js
 
-      # ── Install electron deps (all — electron-builder is a devDep) ──────────
-      - name: Install electron dependencies
+      - name: Install electron deps
         working-directory: electron
         run: npm install
 
-      # ── Build the Windows installer and portable exe ──────────────────────
-      - name: Build Electron app
+      - name: Build Windows installers
         working-directory: electron
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npm run dist
 
-      # ── List what was produced ────────────────────────────────────────────
-      - name: List release artifacts
-        shell: powershell
-        run: Get-ChildItem release -Recurse -Filter "*.exe" | Select-Object Name, Length
-
-      # ── Create GitHub release and upload .exe files ───────────────────────
-      - name: Create GitHub Release
+      - name: Upload to release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
-          name: Game Ledger ${{ github.ref_name }}
+          name: Star Citizen Ledger ${{ github.ref_name }}
           draft: false
           prerelease: ${{ contains(github.ref_name, '-beta') || contains(github.ref_name, '-alpha') }}
           body: |
-            ## Game Ledger ${{ github.ref_name }}
+            ## Star Citizen Ledger ${{ github.ref_name }}
 
-            ### Install
-            - **Installer** (`*Setup*.exe`): recommended — installs to Program Files with Start Menu shortcut
-            - **Portable** (`*Portable*.exe`): no installation required, run from anywhere
+            ### Downloads
+            | File | Platform |
+            |---|---|
+            | `*-Setup-x64.exe` | Windows 10/11 — installer with Start Menu + Desktop shortcut |
+            | `*-Portable-x64.exe` | Windows 10/11 — no install needed |
+            | `*-x64.AppImage` | Linux x64 — `chmod +x` then run |
+            | `*-x64.deb` | Ubuntu / Debian — `sudo dpkg -i *.deb` |
+            | `*-x64.dmg` | macOS Intel |
+            | `*-arm64.dmg` | macOS Apple Silicon |
 
-            ### What's new
-            See [CHANGELOG.md](CHANGELOG.md) for details.
+            ### Your data
+            Stored locally, never uploaded:
+            - **Windows**: `%APPDATA%\star-citizen-ledger\data\`
+            - **Linux**: `~/.config/star-citizen-ledger/data/`
+            - **macOS**: `~/Library/Application Support/star-citizen-ledger/data/`
 
-            ### First run
-            The app stores your data in `%APPDATA%\Game Ledger\data\` — this persists across updates.
+            ### Security note
+            These builds are not code-signed. Windows SmartScreen will warn on first run — click "More info → Run anyway". See [VirusTotal results](https://github.com/Axiomancer/star-citizen-ledger#virus-scan-results-v100) in the README.
+          files: release/**/*.exe
+
+  # ── Linux: AppImage + .deb ────────────────────────────────────────────────
+  build-linux:
+    name: Linux
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install system deps for electron-builder
+        run: |
+          sudo apt-get update -y
+          sudo apt-get install -y rpm fakeroot dpkg
+
+      - name: Install root deps
+        run: npm install
+
+      - name: Install client deps
+        working-directory: client
+        run: npm install
+
+      - name: Install server deps
+        working-directory: server
+        run: npm install
+
+      - name: Generate icons
+        run: npm run icons
+
+      - name: Build server
+        run: npm run build:server
+
+      - name: Build client
+        run: npm run build:client
+
+      - name: Prepare electron bundle
+        run: node scripts/prepare-electron.js
+
+      - name: Install electron deps
+        working-directory: electron
+        run: npm install
+
+      - name: Build Linux packages
+        working-directory: electron
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run dist
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
           files: |
-            release/**/*.exe
+            release/**/*.AppImage
+            release/**/*.deb
+
+  # ── macOS: DMG (Intel + Apple Silicon) ───────────────────────────────────
+  build-mac:
+    name: macOS
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install root deps
+        run: npm install
+
+      - name: Install client deps
+        working-directory: client
+        run: npm install
+
+      - name: Install server deps
+        working-directory: server
+        run: npm install
+
+      - name: Generate icons
+        run: npm run icons
+
+      - name: Build server
+        run: npm run build:server
+
+      - name: Build client
+        run: npm run build:client
+
+      - name: Prepare electron bundle
+        run: node scripts/prepare-electron.js
+
+      - name: Install electron deps
+        working-directory: electron
+        run: npm install
+
+      - name: Build macOS DMG
+        working-directory: electron
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run dist
+
+      - name: Upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            release/**/*.dmg
+            release/**/*.zip

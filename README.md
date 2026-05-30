@@ -25,14 +25,21 @@
 
 ## Download
 
-Head to [**Releases**](https://github.com/Axiomancer/star-citizen-ledger/releases) and grab the latest:
+Head to [**Releases**](https://github.com/Axiomancer/star-citizen-ledger/releases) and grab the latest for your platform:
 
-| File | Description |
-|---|---|
-| `Star Citizen Ledger-1.0.0-Setup-x64.exe` | Windows installer — adds Start Menu shortcut + Desktop icon |
-| `Star Citizen Ledger-1.0.0-Portable-x64.exe` | Single executable, no installation needed |
+| File | Platform | Notes |
+|---|---|---|
+| `*-Setup-x64.exe` | Windows 10/11 | Installer — adds Start Menu + Desktop shortcut |
+| `*-Portable-x64.exe` | Windows 10/11 | No install needed, run from anywhere |
+| `*-x64.AppImage` | Linux x64 | Universal — `chmod +x` then run |
+| `*-x64.deb` | Ubuntu / Debian | `sudo dpkg -i *.deb` |
+| `*-x64.dmg` | macOS Intel | Drag to Applications |
+| `*-arm64.dmg` | macOS Apple Silicon | Drag to Applications |
 
-> Your data lives in `%APPDATA%\star-citizen-ledger\data\` on your machine and is preserved across app updates. Nothing is stored inside the executable.
+> Your data is stored locally and never uploaded anywhere:
+> - **Windows**: `%APPDATA%\star-citizen-ledger\data\`
+> - **Linux**: `~/.config/star-citizen-ledger/data/`
+> - **macOS**: `~/Library/Application Support/star-citizen-ledger/data/`
 
 ### Virus scan results (v1.0.0)
 

@@ -68,6 +68,30 @@
     "portable": {
       "artifactName": "${productName}-${version}-Portable-${arch}.${ext}"
     },
+    "linux": {
+      "icon": "build-assets/icon.png",
+      "category": "Finance",
+      "target": [
+        { "target": "AppImage", "arch": ["x64"] },
+        { "target": "deb",      "arch": ["x64"] }
+      ],
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    },
+    "deb": {
+      "depends": ["libgtk-3-0", "libnotify4", "libnss3", "libxss1", "libxtst6", "xdg-utils", "libatspi2.0-0", "libdrm2", "libgbm1", "libxcb-dri3-0"]
+    },
+    "mac": {
+      "icon": "build-assets/icon.png",
+      "category": "public.app-category.finance",
+      "target": [
+        { "target": "dmg",  "arch": ["x64", "arm64"] },
+        { "target": "zip",  "arch": ["x64", "arm64"] }
+      ],
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    },
+    "dmg": {
+      "title": "${productName} ${version}"
+    },
     "npmRebuild": false,
     "nodeGypRebuild": false,
     "asar": true
