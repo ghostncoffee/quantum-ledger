@@ -5,12 +5,13 @@
   "scripts": {
     "dev:server": "cd server && npm run dev",
     "dev:client": "cd client && npm run dev",
+    "install:all": "npm install --ignore-scripts && cd server && npm install --ignore-scripts && cd ../client && npm install --ignore-scripts",
     "build:server": "cd server && npm run build",
     "build:client": "cd client && npm run build",
     "icons": "node scripts/generate-icons.js",
     "build": "npm run build:server && npm run build:client",
-    "package": "npm run icons && npm run build && node scripts/prepare-electron.js && cd electron && npm install && npm run dist",
-    "package:dir": "npm run icons && npm run build && node scripts/prepare-electron.js && cd electron && npm install && npm run dist:dir"
+    "package": "npm run install:all && npm run icons && npm run build && node scripts/prepare-electron.js && cd electron && npm install --ignore-scripts && npm run dist",
+    "package:dir": "npm run install:all && npm run icons && npm run build && node scripts/prepare-electron.js && cd electron && npm install --ignore-scripts && npm run dist:dir"
   },
   "devDependencies": {
     "sharp": "^0.34.5"
