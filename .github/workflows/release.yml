@@ -1,15 +1,16 @@
-﻿name: Release
+name: Release
 
 on:
   push:
     tags:
       - 'v*'   # triggers on v1.0.0, v1.2.3, etc.
+  workflow_dispatch:   # manual "Run workflow" button in the Actions tab (build-only test, skips release upload)
 
 permissions:
   contents: write
 
 jobs:
-  # â”€â”€ Windows: NSIS installer + portable .exe â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  # Windows: NSIS installer + portable .exe
   build-windows:
     name: Windows
     runs-on: windows-latest
@@ -20,7 +21,7 @@ jobs:
         with:
           node-version: '22'
 
-      - name: Install root deps (sharp for icon generation)
+      - name: Install root deps
         run: npm install --ignore-scripts
 
       - name: Install client deps
@@ -54,6 +55,7 @@ jobs:
         run: npm run dist
 
       - name: Upload to release
+        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           name: Star Citizen Ledger ${{ github.ref_name }}
@@ -65,10 +67,10 @@ jobs:
             ### Downloads
             | File | Platform |
             |---|---|
-            | `*-Setup-x64.exe` | Windows 10/11 â€” installer with Start Menu + Desktop shortcut |
-            | `*-Portable-x64.exe` | Windows 10/11 â€” no install needed |
-            | `*-x64.AppImage` | Linux x64 â€” `chmod +x` then run |
-            | `*-x64.deb` | Ubuntu / Debian â€” `sudo dpkg -i *.deb` |
+            | `*-Setup-x64.exe` | Windows 10/11 - installer with Start Menu + Desktop shortcut |
+            | `*-Portable-x64.exe` | Windows 10/11 - no install needed |
+            | `*-x64.AppImage` | Linux x64 - `chmod +x` then run |
+            | `*-x64.deb` | Ubuntu / Debian - `sudo dpkg -i *.deb` |
             | `*-x64.dmg` | macOS Intel |
             | `*-arm64.dmg` | macOS Apple Silicon |
 
@@ -79,10 +81,10 @@ jobs:
             - **macOS**: `~/Library/Application Support/star-citizen-ledger/data/`
 
             ### Security note
-            These builds are not code-signed. Windows SmartScreen will warn on first run â€” click "More info â†’ Run anyway". See [VirusTotal results](https://github.com/Axiomancer/star-citizen-ledger#virus-scan-results-v100) in the README.
+            These builds are not code-signed. Windows SmartScreen will warn on first run - click "More info -> Run anyway". See the VirusTotal results in the README.
           files: release/**/*.exe
 
-  # â”€â”€ Linux: AppImage + .deb â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  # Linux: AppImage + .deb
   build-linux:
     name: Linux
     runs-on: ubuntu-latest
@@ -132,13 +134,14 @@ jobs:
         run: npm run dist
 
       - name: Upload to release
+        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           files: |
             release/**/*.AppImage
             release/**/*.deb
 
-  # â”€â”€ macOS: DMG (Intel + Apple Silicon) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+  # macOS: DMG (Intel + Apple Silicon)
   build-mac:
     name: macOS
     runs-on: macos-latest
@@ -183,6 +186,7 @@ jobs:
         run: npm run dist
 
       - name: Upload to release
+        if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
           files: |
