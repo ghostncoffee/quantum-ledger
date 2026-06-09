@@ -59,6 +59,61 @@ jobs:
           path: quantum-ledger/release/**/*.exe
           if-no-files-found: error
 
+  # ── Desktop app (Electron, Linux) ─────────────────────────────────────────
+  build-desktop-linux:
+    name: Desktop app (Linux)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: quantum-ledger
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install system deps for electron-builder
+        run: sudo apt-get update -y && sudo apt-get install -y rpm fakeroot dpkg
+
+      - name: Install root deps
+        run: npm install --ignore-scripts
+
+      - name: Install client deps
+        working-directory: quantum-ledger/client
+        run: npm install --ignore-scripts
+
+      - name: Install server deps
+        working-directory: quantum-ledger/server
+        run: npm install --ignore-scripts
+
+      - name: Generate icons
+        run: npm run icons
+
+      - name: Build server + client
+        run: npm run build
+
+      - name: Prepare electron bundle
+        run: node scripts/prepare-electron.js
+
+      - name: Install electron deps
+        working-directory: quantum-ledger/electron
+        run: npm install --ignore-scripts
+
+      - name: Build Linux packages
+        working-directory: quantum-ledger/electron
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-linux
+          path: |
+            quantum-ledger/release/**/*.AppImage
+            quantum-ledger/release/**/*.deb
+          if-no-files-found: error
+
   # ── Org server — Windows .exe (pkg) ────────────────────────────────────────
   build-org-server-exe:
     name: Org server (Windows exe)
@@ -107,7 +162,7 @@ jobs:
   # ── Publish .exe files to a rolling "latest" pre-release ───────────────────
   publish:
     name: Publish latest release
-    needs: [build-desktop, build-org-server-exe]
+    needs: [build-desktop, build-desktop-linux, build-org-server-exe]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -134,8 +189,10 @@ jobs:
             | File | What it is |
             |---|---|
             | `Quantum Ledger-*-Setup-x64.exe` | Desktop app — Windows installer |
-            | `Quantum Ledger-*-Portable-x64.exe` | Desktop app — portable, no install needed |
+            | `Quantum Ledger-*-Portable-x64.exe` | Desktop app — Windows portable, no install needed |
+            | `Quantum Ledger-*-x64.AppImage` | Desktop app — Linux, `chmod +x` then run |
+            | `Quantum Ledger-*-x64.deb` | Desktop app — Ubuntu / Debian, `sudo dpkg -i *.deb` |
             | `quantum-org-server.exe` | Org server — Windows, self-contained |
 
-            **Linux / VPS:** use the Docker image instead — `ghcr.io/ghostncoffee/quantum-org-server:latest`
+            **Org server on Linux / VPS:** use the Docker image — `ghcr.io/ghostncoffee/quantum-org-server:latest`
           files: dist/**/*
