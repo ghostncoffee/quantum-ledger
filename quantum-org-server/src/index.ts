@@ -1,6 +1,5 @@
 import path from 'path';
 import express from 'express';
-import cors from 'cors';
 import helmet from 'helmet';
 import { config } from './config/env';
 import { initDb } from './db';
@@ -24,7 +23,6 @@ async function main(): Promise<void> {
   const app = express();
 
   app.use(helmet());
-  app.use(cors());
   app.use(express.json({ limit: '10mb' }));
 
   app.use((req, _res, next) => {
@@ -53,10 +51,9 @@ async function main(): Promise<void> {
   });
 
   app.listen(config.port, () => {
-    logger.info(`Clan data server listening on port ${config.port}`);
+    logger.info(`Quantum Org Server listening on port ${config.port}`);
     logger.info(`Server ID: ${config.serverId}`);
-    logger.info(`Auth token: ${config.authToken}`);
-    logger.info('Share the server URL, server ID and auth token with clan members so they can configure the offline tool.');
+    logger.info(`Auth token is stored in .env (AUTH_TOKEN) — share it with org members so they can configure the desktop app.`);
   });
 
   // Background jobs

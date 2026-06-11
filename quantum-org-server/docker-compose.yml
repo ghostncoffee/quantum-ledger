@@ -4,6 +4,8 @@ services:
     ports:
       - "3100:3100"
     volumes:
+      # The container runs as uid 1000 (non-root) — make sure ./data is
+      # writable by that uid, e.g. `mkdir -p data && chown 1000:1000 data`
       - ./data:/app/data
     env_file:
       - .env

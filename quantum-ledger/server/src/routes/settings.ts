@@ -48,6 +48,11 @@ router.get('/', async (_req, res) => {
       acc[row.key] = row.value;
       return acc;
     }, {});
+
+    // Never return the raw clan-sync auth token — only whether one is set.
+    settings.clanAuthTokenSet = settings.clanAuthToken ? 'true' : 'false';
+    delete settings.clanAuthToken;
+
     res.json(settings);
   } catch (err) {
     console.error('[settings GET]', err);
@@ -65,8 +70,15 @@ router.put('/', async (req, res) => {
       const handle = String(body.clanHandle ?? '').trim();
       const serverUrl = String(body.clanServerUrl ?? '').trim().replace(/\/+$/, '');
       const serverId = String(body.clanServerId ?? '').trim();
-      const authToken = String(body.clanAuthToken ?? '').trim();
       const enabled = Boolean(body.clanSyncEnabled);
+
+      // The client never gets the real token back (see GET handler), so an
+      // empty/omitted value here means "keep the existing token".
+      let authToken = String(body.clanAuthToken ?? '').trim();
+      if (!authToken) {
+        const existing = await db.get('SELECT value FROM settings WHERE key = ?', ['clanAuthToken']);
+        authToken = existing?.value ?? '';
+      }
 
       if (enabled) {
         if (!handle || !serverUrl || !serverId || !authToken) {
@@ -93,7 +105,14 @@ router.put('/', async (req, res) => {
         void pushInitialData(serverUrl);
       }
 
-      return res.json({ success: true, clanSyncEnabled: enabled, clanHandle: handle, clanServerUrl: serverUrl, clanServerId: serverId });
+      return res.json({
+        success: true,
+        clanSyncEnabled: enabled,
+        clanHandle: handle,
+        clanServerUrl: serverUrl,
+        clanServerId: serverId,
+        clanAuthTokenSet: Boolean(authToken),
+      });
     }
 
     const { logPath } = body;

@@ -31,6 +31,27 @@ export async function startServer(port?: number, clientDist?: string): Promise<v
   app.use(cors({ origin: `http://localhost:${listenPort}` }));
   app.use(express.json());
 
+  // Defence-in-depth: this server has no auth and binds to loopback only, but
+  // any local process or webpage can still reach it. Browsers cannot attach
+  // custom headers to cross-site requests without a CORS preflight, which the
+  // origin restriction above will reject — so this blocks "blind" cross-site
+  // requests (CSRF-style) from a malicious page open in the user's browser.
+  app.use('/api', (req, res, next) => {
+    if (req.path === '/health' || req.headers['x-quantum-ledger'] === '1') {
+      return next();
+    }
+    res.status(403).json({ error: 'Forbidden' });
+  });
+
+  // Restrict the renderer to same-origin resources by default.
+  app.use((_req, res, next) => {
+    res.setHeader(
+      'Content-Security-Policy',
+      "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'",
+    );
+    next();
+  });
+
   app.use('/api/games', gamesRouter);
   app.use('/api/crew', crewRouter);
   app.use('/api/vehicles', vehiclesRouter);

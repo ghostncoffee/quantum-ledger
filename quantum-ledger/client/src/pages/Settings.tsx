@@ -17,6 +17,7 @@ export function Settings() {
   const [clanServerUrl, setClanServerUrl] = useState('');
   const [clanServerId, setClanServerId] = useState('');
   const [clanAuthToken, setClanAuthToken] = useState('');
+  const [clanAuthTokenSet, setClanAuthTokenSet] = useState(false);
   const [clanSyncEnabled, setClanSyncEnabled] = useState(false);
   const [clanError, setClanError] = useState<string | null>(null);
   const [clanSaved, setClanSaved] = useState(false);
@@ -30,7 +31,7 @@ export function Settings() {
     setClanHandle(s.clanHandle ?? '');
     setClanServerUrl(s.clanServerUrl ?? '');
     setClanServerId(s.clanServerId ?? '');
-    setClanAuthToken(s.clanAuthToken ?? '');
+    setClanAuthTokenSet(s.clanAuthTokenSet === 'true');
     setClanSyncEnabled(s.clanSyncEnabled === 'true');
   }, [settings]);
 
@@ -53,6 +54,7 @@ export function Settings() {
     }) => settingsApi.update(payload),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['settings'] });
+      setClanAuthToken('');
       setClanError(null);
       setClanSaved(true);
       setTimeout(() => setClanSaved(false), 2500);
@@ -67,7 +69,7 @@ export function Settings() {
     ? clanHandle !== ((settings as any).clanHandle ?? '')
       || clanServerUrl !== ((settings as any).clanServerUrl ?? '')
       || clanServerId !== ((settings as any).clanServerId ?? '')
-      || clanAuthToken !== ((settings as any).clanAuthToken ?? '')
+      || clanAuthToken !== ''
       || clanSyncEnabled !== ((settings as any).clanSyncEnabled === 'true')
     : false;
 
@@ -155,7 +157,7 @@ export function Settings() {
               type="password"
               value={clanAuthToken}
               onChange={e => setClanAuthToken(e.target.value)}
-              placeholder="Shared by your clan leader"
+              placeholder={clanAuthTokenSet ? 'Token saved — leave blank to keep it' : 'Shared by your clan leader'}
               autoComplete="off"
               className="w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200 font-mono"
             />

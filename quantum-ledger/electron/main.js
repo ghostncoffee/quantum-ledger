@@ -135,9 +135,13 @@ app.whenReady().then(async () => {
 
   mainWindow.loadURL(loadUrl);
 
-  // Open links that explicitly target _blank in the system browser, not in-app
+  // Open links that explicitly target _blank in the system browser, not in-app.
+  // Only http(s) links are forwarded — other schemes (file:, custom protocol
+  // handlers, etc.) are silently dropped.
   mainWindow.webContents.setWindowOpenHandler(({ url: href }) => {
-    shell.openExternal(href);
+    if (href.startsWith('http://') || href.startsWith('https://')) {
+      shell.openExternal(href);
+    }
     return { action: 'deny' };
   });
 

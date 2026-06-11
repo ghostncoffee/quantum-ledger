@@ -11,12 +11,13 @@ const PERIODS: Record<string, string | null> = {
   all_time: null,
 };
 
-function periodFilter(period: string): { sessionClause: string; activityClause: string } {
+function periodFilter(period: string): { sessionClause: string; activityClause: string; args: unknown[] } {
   const offset = PERIODS[period] !== undefined ? PERIODS[period] : PERIODS.week;
-  if (!offset) return { sessionClause: '', activityClause: '' };
+  if (!offset) return { sessionClause: '', activityClause: '', args: [] };
   return {
-    sessionClause: `AND s.occurred_at >= datetime('now', '${offset}')`,
-    activityClause: `AND a.occurred_at >= datetime('now', '${offset}')`,
+    sessionClause: `AND s.occurred_at >= datetime('now', ?)`,
+    activityClause: `AND a.occurred_at >= datetime('now', ?)`,
+    args: [offset],
   };
 }
 
@@ -26,7 +27,7 @@ router.get('/:metric', async (req, res) => {
   const metric = req.params.metric;
   const period = String(req.query.period ?? 'week');
   const limit  = Math.min(Number(req.query.limit ?? 10), 50);
-  const { sessionClause, activityClause } = periodFilter(period);
+  const { sessionClause, activityClause, args } = periodFilter(period);
 
   try {
     let rows: any[];
@@ -40,7 +41,7 @@ router.get('/:metric', async (req, res) => {
         GROUP BY m.id
         ORDER BY value DESC
         LIMIT ?
-      `, [limit]);
+      `, [...args, limit]);
     } else if (metric === 'activity') {
       rows = await db.all(`
         SELECT m.username, COUNT(a.id) AS value
@@ -50,7 +51,7 @@ router.get('/:metric', async (req, res) => {
         GROUP BY m.id
         ORDER BY value DESC
         LIMIT ?
-      `, [limit]);
+      `, [...args, limit]);
     } else if (['hauling', 'contract', 'mining', 'salvage', 'refining'].includes(metric)) {
       rows = await db.all(`
         SELECT m.username, COALESCE(SUM(a.amount), 0) AS value
@@ -61,7 +62,7 @@ router.get('/:metric', async (req, res) => {
         GROUP BY m.id
         ORDER BY value DESC
         LIMIT ?
-      `, [metric, limit]);
+      `, [metric, ...args, limit]);
     } else {
       res.status(400).json({ error: `Unknown metric "${metric}". Valid: sessions, activity, hauling, contract, mining, salvage, refining` });
       return;

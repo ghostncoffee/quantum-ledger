@@ -17,26 +17,26 @@ async function aggregate(): Promise<void> {
   running = true;
   try {
     for (const { key, offset } of PERIODS) {
-      const timeClause = offset
-        ? `AND occurred_at >= datetime('now', '${offset}')`
-        : '';
+      const timeClause  = offset ? `AND occurred_at >= datetime('now', ?)` : '';
+      const timeClauseS = offset ? `AND s.occurred_at >= datetime('now', ?)` : '';
+      const timeArgs = offset ? [offset] : [];
 
       const [sessionTotals, sessionsByType, leaderboard] = await Promise.all([
         db.get(`
           SELECT COUNT(*) AS session_count, COUNT(DISTINCT member_id) AS active_members
           FROM uploaded_sessions WHERE 1=1 ${timeClause}
-        `),
+        `, timeArgs),
         db.all(`
           SELECT session_type, COUNT(*) AS count
           FROM uploaded_sessions WHERE 1=1 ${timeClause}
           GROUP BY session_type ORDER BY count DESC
-        `),
+        `, timeArgs),
         db.all(`
           SELECT m.username, COUNT(s.id) AS session_count
           FROM members m
-          LEFT JOIN uploaded_sessions s ON s.member_id = m.id ${timeClause ? `AND s.${timeClause.replace('AND ', '')}` : ''}
+          LEFT JOIN uploaded_sessions s ON s.member_id = m.id ${timeClauseS}
           GROUP BY m.id ORDER BY session_count DESC LIMIT 10
-        `),
+        `, timeArgs),
       ]);
 
       const memberCount = await db.get('SELECT COUNT(*) AS count FROM members');

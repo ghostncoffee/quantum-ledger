@@ -1,6 +1,9 @@
 import axios from 'axios';
 
-export const api = axios.create({ baseURL: '/api' });
+// X-Quantum-Ledger marks requests as coming from the app itself — the server
+// rejects API requests without it (see server/src/index.ts) so a malicious
+// webpage open in the user's browser can't make blind requests to the local API.
+export const api = axios.create({ baseURL: '/api', headers: { 'X-Quantum-Ledger': '1' } });
 
 // Helper to unwrap data
 const get = (url: string, params?: Record<string, unknown>) => api.get(url, { params }).then(r => r.data);

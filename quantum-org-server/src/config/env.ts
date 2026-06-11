@@ -14,7 +14,8 @@ const ENV_PATH = path.join(baseDir, '.env');
 dotenv.config({ path: ENV_PATH });
 
 // Generates a value on first run and persists it to .env so it survives restarts.
-function ensurePersisted(key: string, generate: () => string): string {
+// `reveal` prints the freshly-generated value once, since it won't be logged again.
+function ensurePersisted(key: string, generate: () => string, opts: { reveal?: boolean } = {}): string {
   const existing = process.env[key];
   if (existing) return existing;
 
@@ -23,7 +24,13 @@ function ensurePersisted(key: string, generate: () => string): string {
 
   const line = `${key}=${value}\n`;
   fs.appendFileSync(ENV_PATH, line);
-  console.log(`[config] Generated ${key} and saved it to .env`);
+
+  if (opts.reveal) {
+    console.log(`[config] Generated ${key}: ${value}`);
+    console.log(`[config] Save this now — it won't be printed again. It's also stored in ${ENV_PATH}`);
+  } else {
+    console.log(`[config] Generated ${key} and saved it to .env`);
+  }
   return value;
 }
 
@@ -31,7 +38,7 @@ export const config = {
   port: Number(process.env.SERVER_PORT ?? process.env.PORT ?? 3100),
   dataDir: path.resolve(process.env.DATA_DIR || path.join(baseDir, 'data')),
   serverId: ensurePersisted('SERVER_ID', () => crypto.randomUUID()),
-  authToken: ensurePersisted('AUTH_TOKEN', () => crypto.randomBytes(32).toString('hex')),
+  authToken: ensurePersisted('AUTH_TOKEN', () => crypto.randomBytes(32).toString('hex'), { reveal: true }),
   discordWebhookUrl: process.env.DISCORD_WEBHOOK_URL || null,
   dataRetentionDays: Number(process.env.DATA_RETENTION_DAYS ?? 90),
 };

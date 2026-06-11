@@ -1,6 +1,8 @@
 # Quantum Ledger
 
-> A free, offline desktop app for tracking your Star Citizen economy — hauling contracts, mining runs, trading, refining, salvage, blueprints, crew payouts and more. All data stays on your machine. No accounts, no cloud, no internet required.
+> A free, local-first desktop app for tracking your Star Citizen economy — hauling contracts, mining runs, trading, refining, salvage, blueprints, crew payouts and more. All data stays on your machine and no account is required — works fully offline, with optional sync to a self-hosted org server.
+
+See [CHANGELOG.md](CHANGELOG.md) for release notes.
 
 ---
 
@@ -22,6 +24,7 @@
 | **Crew** | Members, roles, payout percentages, earnings history |
 | **Vehicles** | Fleet management with ship type and SCU capacity |
 | **Log Import** | Scan the Star Citizen game log to import sessions automatically |
+| **Org Sync** | Optionally share session activity, blueprints, and your hangar with a self-hosted [Quantum Org Server](../quantum-org-server/) |
 
 ---
 
@@ -43,14 +46,9 @@ Head to [**Releases**](https://github.com/ghostncoffee/Quantum-Ledger/releases) 
 > - **Linux**: `~/.config/quantum-ledger/data/`
 > - **macOS**: `~/Library/Application Support/quantum-ledger/data/`
 
-### Virus scan results (v1.0.0)
+### Virus scan results
 
-Both files have been scanned and are clean. Windows Defender and other tools may flag unsigned Electron apps as "unknown publisher" — this is expected for indie apps without a code-signing certificate and is not a virus.
-
-| File | VirusTotal |
-|---|---|
-| `Quantum Ledger-1.0.0-Setup-x64.exe` | [View scan results](https://www.virustotal.com/gui/file-analysis/OTMwNDE5OWM5MDRmZTdjOTg2NWM5NDU5OTliMTIxNDk6MTc4MDE3Njc0Nw==) |
-| `Quantum Ledger-1.0.0-Portable-x64.exe` | [View scan results](https://www.virustotal.com/gui/file-analysis/ZTU4OGY3NTRiMjQ3MWJlYTJiNTBhOGNlMDMyNDQxMjQ6MTc4MDE3NjcxOQ==) |
+Each release's Windows binaries are scanned with VirusTotal before publishing. Windows Defender and other tools may flag unsigned Electron apps as "unknown publisher" — this is expected for indie apps without a code-signing certificate and is not a virus. If you'd like to verify a download yourself, upload it to [VirusTotal](https://www.virustotal.com/) before running.
 
 ---
 
@@ -96,17 +94,17 @@ Output lands in `release/`. The pipeline:
 
 ---
 
-## Clan sync (optional)
+## Org sync (optional)
 
-The app can optionally sync activity to a self-hosted **Clan Data Server** run by your clan leader. When configured:
+The app can optionally sync activity to a self-hosted **Quantum Org Server** run by your org/clan leader. When configured:
 
 - Each completed session (mining bag, haul delivery, contract, etc.) is uploaded immediately in the background.
 - Your blueprint catalogue and vehicle hangar are pushed on every change.
 - If the server is unreachable, the app continues working offline — uploads are not queued or retried, the local record is always authoritative.
 
-To configure, go to **Settings → Clan Sync** in the app and enter the server URL, Server ID, and Auth Token provided by your clan leader. The auth token never leaves the desktop app — it is proxied through the local Express backend and never reaches the browser renderer.
+To configure, go to **Settings → Clan Sync** in the app and enter the server URL, Server ID, and Auth Token provided by your org leader. The auth token never leaves the desktop app — it is proxied through the local Express backend and never reaches the browser renderer.
 
-See [`clan-data-server/README.md`](../clan-data-server/README.md) for how clan leaders can self-host the server.
+See [`quantum-org-server/README.md`](../quantum-org-server/README.md) for how org leaders can self-host the server.
 
 ---
 

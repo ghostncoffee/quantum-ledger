@@ -13,7 +13,14 @@ router.get('/', async (req, res) => {
   const limit  = Math.min(Number(req.query.limit ?? 200), 500);
   const offset = Math.max(Number(req.query.offset ?? 0), 0);
   const status = String(req.query.status ?? 'approved');
-  const statusFilter = status === 'all' ? '' : `AND m.status = '${status === 'pending' ? 'pending' : 'approved'}'`;
+
+  const params: unknown[] = [];
+  let statusFilter = '';
+  if (status !== 'all') {
+    statusFilter = 'AND m.status = ?';
+    params.push(status === 'pending' ? 'pending' : 'approved');
+  }
+  params.push(limit, offset);
 
   try {
     const rows = await db.all(
@@ -27,7 +34,7 @@ router.get('/', async (req, res) => {
         GROUP BY m.id
         ORDER BY m.last_seen DESC
         LIMIT ? OFFSET ?`,
-      [limit, offset],
+      params,
     );
     res.json(rows);
   } catch (e: unknown) { routeError(res, e); }
