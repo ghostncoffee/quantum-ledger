@@ -1,9 +1,10 @@
 # Quantum Ledger
 
-This repository contains two independent projects:
+This repository contains three independent projects:
 
 - **[`quantum-ledger/`](quantum-ledger/)** — the local-first desktop app for tracking your Star Citizen economy. Mining runs, hauling contracts, trading, refining, salvage, blueprints, crew payouts, vehicle fleets, and more. All data stays on your machine, with optional sync to a self-hosted org server. See [its README](quantum-ledger/README.md) for full features and download links, or [its CHANGELOG](quantum-ledger/CHANGELOG.md) for release notes.
 - **[`quantum-org-server/`](quantum-org-server/)** — an optional, self-hosted server that org leaders can run so the desktop app can sync member activity in real time. Provides a web admin dashboard, blueprint and hangar tracking, leaderboards, and a member approval system. Available as a Docker image (Linux/VPS) or a standalone Windows `.exe`. See [its README](quantum-org-server/README.md) for setup instructions, or [its CHANGELOG](quantum-org-server/CHANGELOG.md) for release notes.
+- **[`quantum-discord-bot/`](quantum-discord-bot/)** — an optional Discord bot that posts org activity stats from a Quantum Org Server as rich embeds (e.g. `/stats`). Each org self-hosts its own copy alongside its org server. See [its README](quantum-discord-bot/README.md) for setup instructions.
 
 Each project has its own `package.json`, dependencies, and build/run scripts — they are developed and deployed independently.
 
