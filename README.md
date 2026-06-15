@@ -37,3 +37,12 @@ npm run dev
 cd quantum-org-server
 docker compose up -d
 ```
+
+## Container images
+
+`quantum-org-server` and `quantum-discord-bot` are published to GHCR on every push to `main`, tagged both `:latest` and with their current version (e.g. `:1.1.0`):
+
+- `ghcr.io/ghostncoffee/quantum-org-server:<version>`
+- `ghcr.io/ghostncoffee/quantum-discord-bot:<version>`
+
+The versioned tags are immutable, so they work with image-update-automation tools (e.g. Keel, Flux, Argo CD Image Updater) that watch a registry for new semver tags and roll deployments forward automatically.
