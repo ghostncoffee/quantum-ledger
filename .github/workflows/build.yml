@@ -147,6 +147,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Read version
+        id: pkg
+        run: echo "version=$(node -p "require('./quantum-org-server/package.json').version")" >> $GITHUB_OUTPUT
+
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -157,7 +161,34 @@ jobs:
         with:
           context: quantum-org-server
           push: true
-          tags: ghcr.io/${{ github.repository_owner }}/quantum-org-server:latest
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/quantum-org-server:latest
+            ghcr.io/${{ github.repository_owner }}/quantum-org-server:${{ steps.pkg.outputs.version }}
+
+  # ── Discord bot — Docker image (ghcr.io) ───────────────────────────────────
+  build-discord-bot-docker:
+    name: Discord bot (Docker)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read version
+        id: pkg
+        run: echo "version=$(node -p "require('./quantum-discord-bot/package.json').version")" >> $GITHUB_OUTPUT
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v5
+        with:
+          context: quantum-discord-bot
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/quantum-discord-bot:latest
+            ghcr.io/${{ github.repository_owner }}/quantum-discord-bot:${{ steps.pkg.outputs.version }}
 
   # ── Publish .exe files to a rolling "latest" pre-release ───────────────────
   publish:
