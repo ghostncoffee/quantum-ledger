@@ -46,3 +46,4 @@ docker compose up -d
 - `ghcr.io/ghostncoffee/quantum-discord-bot:<version>`
 
 The versioned tags are immutable, so they work with image-update-automation tools (e.g. Keel, Flux, Argo CD Image Updater) that watch a registry for new semver tags and roll deployments forward automatically.
+
