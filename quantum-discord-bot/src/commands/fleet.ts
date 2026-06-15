@@ -1,5 +1,6 @@
 import { SlashCommandBuilder, EmbedBuilder, ChatInputCommandInteraction } from 'discord.js';
 import { fetchFleet } from '../lib/orgClient';
+import { joinWithLimit } from '../lib/format';
 
 const TYPE_EMOJI: Record<string, string> = {
   mining: '⛏️',
@@ -41,16 +42,4 @@ export async function execute(interaction: ChatInputCommandInteraction): Promise
     .setTimestamp();
 
   await interaction.editReply({ embeds: [embed] });
-}
-
-function joinWithLimit(lines: string[], maxLength: number): string {
-  let result = '';
-  for (let i = 0; i < lines.length; i++) {
-    const next = result ? `${result}\n${lines[i]}` : lines[i];
-    if (next.length > maxLength - 20) {
-      return `${result}\n…and ${lines.length - i} more`;
-    }
-    result = next;
-  }
-  return result;
 }

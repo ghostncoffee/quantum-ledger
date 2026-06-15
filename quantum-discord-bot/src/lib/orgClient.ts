@@ -17,6 +17,11 @@ export interface FleetShip {
   count: number;
 }
 
+export interface BlueprintEntry {
+  product_name: string;
+  members: string[];
+}
+
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(`${config.orgServerUrl}${path}`, {
     headers: { Authorization: `Bearer ${config.orgServerAuthToken}` },
@@ -35,4 +40,8 @@ export function fetchClanStats(period: StatsPeriod): Promise<ClanStats> {
 
 export function fetchFleet(): Promise<FleetShip[]> {
   return get<FleetShip[]>('/api/members/ships');
+}
+
+export function fetchBlueprints(): Promise<BlueprintEntry[]> {
+  return get<BlueprintEntry[]>('/api/blueprints');
 }

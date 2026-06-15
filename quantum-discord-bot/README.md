@@ -10,6 +10,7 @@ A small Discord bot that posts org activity stats from a self-hosted [Quantum Or
 |---|---|
 | `/stats [period]` | Org-wide activity summary (sessions logged, active members, activity breakdown). `period` is `today`, `week` (default), `month`, or `all_time`. |
 | `/fleet` | List every ship type available across the org's hangars, with counts and SCU capacity. |
+| `/blueprint [name]` | Without `name`, list every unlocked blueprint and who has it. With `name`, show who has unlocked the closest-matching blueprint. |
 | `/help` | List all available commands and what they do. |
 
 ---
