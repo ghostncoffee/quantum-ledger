@@ -234,3 +234,17 @@ jobs:
 
             **Org server on Linux / VPS:** use the Docker image — `ghcr.io/ghostncoffee/quantum-org-server:latest`
           files: dist/**/*
+
+      # Tag main with vX.Y.Z once per version bump, so every released version is
+      # tracked in git (not just the rolling `latest`). Idempotent: skips if the
+      # tag already exists, so ordinary commits that don't bump the version no-op.
+      - name: Tag this version
+        run: |
+          tag="v${{ steps.pkg.outputs.version }}"
+          if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1; then
+            echo "$tag already exists — nothing to tag"
+          else
+            git tag "$tag" "${{ github.sha }}"
+            git push origin "$tag"
+            echo "Created $tag"
+          fi

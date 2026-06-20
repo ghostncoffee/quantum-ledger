@@ -26,6 +26,21 @@ function parseLogTimestamp(line: string): number {
   return Number.isNaN(ms) ? Date.now() / 1000 : ms / 1000;
 }
 
+/**
+ * Splits a freshly-read tail chunk into complete (non-blank) lines plus the
+ * byte count consumed, holding back any unterminated trailing line so a
+ * half-written log entry isn't parsed before its newline arrives. Exported for testing.
+ */
+export function splitCompleteLines(chunk: string): { lines: string[]; consumedBytes: number } {
+  const lastNl = chunk.lastIndexOf('\n');
+  if (lastNl === -1) return { lines: [], consumedBytes: 0 };
+  const complete = chunk.slice(0, lastNl);
+  return {
+    lines: complete.split('\n').filter(l => l.trim()),
+    consumedBytes: Buffer.byteLength(complete + '\n', 'utf-8'),
+  };
+}
+
 function createWatcherState(): WatcherState {
   return {
     guidMap: new Map(),
@@ -203,7 +218,7 @@ export class LogMonitor {
           await processLine(line, this.state, this.gameId);
         }
       }
-      this.lastPosition = content.length;
+      this.lastPosition = Buffer.byteLength(content, 'utf-8');
       console.log('[LogMonitor] Replayed existing Game.log');
     } catch (err) {
       console.error('[LogMonitor] Error replaying log:', err);
@@ -233,17 +248,27 @@ export class LogMonitor {
     if (!this.logPath || !this.state || !this.gameId) return;
 
     try {
-      const content = fs.readFileSync(this.logPath, 'utf-8');
-      if (content.length > this.lastPosition) {
-        const newContent = content.substring(this.lastPosition);
-        const lines = newContent.split('\n');
-        for (const line of lines) {
-          if (line.trim()) {
-            await processLine(line, this.state, this.gameId);
-          }
-        }
-        this.lastPosition = content.length;
+      const size = fs.statSync(this.logPath).size;
+      if (size < this.lastPosition) this.lastPosition = 0; // log rotated/truncated (SC restart) — replay from the top
+      if (size <= this.lastPosition) return;
+
+      // Read only the appended bytes instead of re-reading the whole file each event.
+      const fd = fs.openSync(this.logPath, 'r');
+      let chunk: string;
+      try {
+        const buf = Buffer.alloc(size - this.lastPosition);
+        fs.readSync(fd, buf, 0, buf.length, this.lastPosition);
+        chunk = buf.toString('utf-8');
+      } finally {
+        fs.closeSync(fd);
       }
+
+      const { lines, consumedBytes } = splitCompleteLines(chunk);
+      for (const line of lines) {
+        await processLine(line, this.state, this.gameId);
+      }
+      this.lastPosition += consumedBytes;
+      // ponytail: utf-8 read at a byte offset; SC logs are ASCII so a multibyte char split won't happen
     } catch (err) {
       console.error('[LogMonitor] Error processing tail:', err);
     }

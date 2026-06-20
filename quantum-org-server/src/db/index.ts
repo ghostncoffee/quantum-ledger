@@ -26,6 +26,9 @@ export const db = {
     return { lastInsertRowid: Number(r.lastInsertRowid ?? 0), rowsAffected: r.rowsAffected };
   },
   exec: async (sql: string): Promise<void> => {
+    // ponytail: naive split — breaks if a statement contains a ';' inside a string
+    // literal or trigger body. Fine for our static DDL; switch to client.executeMultiple
+    // (or a real splitter) if a migration ever needs an embedded semicolon.
     const stmts = sql.split(';').map(s => s.trim()).filter(s => s.length > 0);
     for (const stmt of stmts) {
       await client.execute(stmt);

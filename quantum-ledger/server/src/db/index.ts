@@ -26,14 +26,13 @@ export const db = {
     return { lastInsertRowid: Number(r.lastInsertRowid ?? 0), rowsAffected: r.rowsAffected ?? 0 };
   },
   exec: async (sql: string): Promise<void> => {
-    // Execute multiple statements by splitting on semicolons
+    // Execute multiple statements by splitting on semicolons.
+    // ponytail: naive split — breaks on a ';' inside a string literal or trigger
+    // body. Fine for our static DDL; use a real splitter if a migration needs one.
     const stmts = sql.split(';').map(s => s.trim()).filter(s => s.length > 0);
     for (const stmt of stmts) {
       await client.execute(stmt);
     }
-  },
-  batch: async (stmts: Array<{ sql: string; args?: unknown[] }>): Promise<void> => {
-    await client.batch(stmts.map(s => ({ sql: s.sql, args: (s.args ?? []) as any })));
   },
 };
 
